@@ -1,0 +1,88 @@
+[gd_scene load_steps=2 format=3 uid="uid://c360tegfh0lco"]
+
+[ext_resource type="Script" uid="uid://dsyk5k8y61ity" path="res://Scenes/MainMenu/main_menu.gd" id="1_3w4mj"]
+
+[node name="MainMenu" type="Control" node_paths=PackedStringArray("sprite2d", "title")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+script = ExtResource("1_3w4mj")
+sprite2d = NodePath("Sprite2D")
+title = NodePath("Title")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+position = Vector2(640, 360)
+scale = Vector2(0.5, 0.5)
+
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -131.5
+offset_top = -78.0
+offset_right = 131.5
+offset_bottom = 78.0
+grow_horizontal = 2
+grow_vertical = 2
+metadata/_edit_lock_ = true
+
+[node name="Start" type="Button" parent="VBoxContainer"]
+layout_mode = 2
+focus_neighbor_top = NodePath("../Exit")
+focus_neighbor_bottom = NodePath("../Load")
+theme_override_font_sizes/font_size = 20
+text = "开始"
+metadata/_edit_lock_ = true
+
+[node name="Load" type="Button" parent="VBoxContainer"]
+layout_mode = 2
+focus_neighbor_top = NodePath("../Start")
+focus_neighbor_bottom = NodePath("../Setting")
+theme_override_font_sizes/font_size = 20
+text = "存档"
+metadata/_edit_lock_ = true
+
+[node name="Setting" type="Button" parent="VBoxContainer"]
+layout_mode = 2
+focus_neighbor_top = NodePath("../Load")
+focus_neighbor_bottom = NodePath("../Exit")
+theme_override_font_sizes/font_size = 20
+text = "设置"
+metadata/_edit_lock_ = true
+
+[node name="Exit" type="Button" parent="VBoxContainer"]
+layout_mode = 2
+focus_neighbor_top = NodePath("../Setting")
+focus_neighbor_bottom = NodePath("../Start")
+theme_override_font_sizes/font_size = 20
+text = "退出"
+metadata/_edit_lock_ = true
+
+[node name="Title" type="RichTextLabel" parent="."]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -266.0
+offset_top = 200.0
+offset_right = 266.0
+offset_bottom = 270.0
+grow_horizontal = 2
+theme_override_font_sizes/normal_font_size = 40
+theme_override_font_sizes/bold_font_size = 40
+theme_override_font_sizes/bold_italics_font_size = 40
+theme_override_font_sizes/italics_font_size = 40
+theme_override_font_sizes/mono_font_size = 40
+bbcode_enabled = true
+
+[connection signal="pressed" from="VBoxContainer/Start" to="." method="_on_start_pressed"]
+[connection signal="pressed" from="VBoxContainer/Load" to="." method="_on_load_pressed"]
+[connection signal="pressed" from="VBoxContainer/Setting" to="." method="_on_setting_pressed"]
+[connection signal="pressed" from="VBoxContainer/Exit" to="." method="_on_exit_pressed"]

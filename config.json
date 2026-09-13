@@ -1,0 +1,35 @@
+{
+	"audio_dir": "Resources/audio",
+	"begin_script": "demo_scene1",
+	"character": {
+		"max": 4.0
+	},
+	"dialogue_ui": {
+		"auto_wait_time": 0.5,
+		"wait_time_per_char": 0.06
+	},
+	"image_dir": "Resources/image",
+	"initial_volume": {
+		"master": -6.0,
+		"music": -6.0,
+		"sfx": 0.0,
+		"voice": 0.0
+	},
+	"logger": {
+		"file": "log.txt",
+		"level": "INFO"
+	},
+	"main_menu": {
+		"background": "生成电影概念图.png",
+		"bgm": "demo_bgm",
+		"title": "[center]Blessing Galgame Engine[/center]"
+	},
+	"mod_dir": "mods",
+	"res_json": "index.json",
+	"save_dir": "Saves",
+	"scripts": {
+		"check": true,
+		"read_dir": "scripts",
+		"save_dir": "GalSs"
+	}
+}

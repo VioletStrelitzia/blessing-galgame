@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3 uid="uid://cn28y2rqw3x7p"]
+
+[ext_resource type="Script" uid="uid://cd6y6fdvdntw5" path="res://Scenes/Character/character.gd" id="1_vwk55"]
+
+[node name="Character" type="Node2D" node_paths=PackedStringArray("sprite2d")]
+script = ExtResource("1_vwk55")
+sprite2d = NodePath("Sprite2D")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+centered = false

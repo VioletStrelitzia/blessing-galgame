@@ -1,0 +1,8 @@
+{
+  "name": "Test Mod Pack",
+  "version": "1.0.0",
+  "author": "blessing",
+  "description": "Replaces all textures with high-resolution versions.",
+  "pck_file": "test.pck",
+  "priority": 100
+}

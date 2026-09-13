@@ -1,0 +1,83 @@
+[gd_scene load_steps=2 format=3 uid="uid://daat3gpppr8qo"]
+
+[ext_resource type="Script" uid="uid://cf4cy02yv3ao3" path="res://Scenes/SaveUI/save_ui.gd" id="1_6itjq"]
+
+[node name="SaveUi" type="Control" node_paths=PackedStringArray("item_list", "texture_rect", "delete_button", "load_button")]
+process_mode = 2
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_6itjq")
+item_list = NodePath("ScrollContainer/ItemList")
+texture_rect = NodePath("TextureRect")
+delete_button = NodePath("HBoxContainer/Delete")
+load_button = NodePath("HBoxContainer/Load")
+metadata/_edit_lock_ = true
+
+[node name="ColorRect" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.78431374, 0.78431374, 0.78431374, 0.78431374)
+
+[node name="ScrollContainer" type="ScrollContainer" parent="."]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -699.0
+offset_top = -508.0
+grow_horizontal = 0
+grow_vertical = 0
+metadata/_edit_lock_ = true
+
+[node name="ItemList" type="ItemList" parent="ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+auto_width = true
+auto_height = true
+fixed_icon_size = Vector2i(128, 72)
+metadata/_edit_lock_ = true
+
+[node name="TextureRect" type="TextureRect" parent="."]
+layout_mode = 0
+offset_left = 33.0
+offset_top = 219.0
+offset_right = 545.0
+offset_bottom = 507.0
+metadata/_edit_lock_ = true
+
+[node name="HBoxContainer" type="HBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 972.0
+offset_top = 167.0
+offset_right = 1264.0
+offset_bottom = 207.0
+theme_override_constants/separation = 20
+alignment = 1
+
+[node name="Delete" type="Button" parent="HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "删除"
+
+[node name="Load" type="Button" parent="HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "载入"
+
+[node name="Exit" type="Button" parent="HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "返回"
+
+[connection signal="pressed" from="HBoxContainer/Exit" to="." method="_on_exit_pressed"]

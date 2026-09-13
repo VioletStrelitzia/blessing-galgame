@@ -1,0 +1,39 @@
+[gd_scene load_steps=4 format=3 uid="uid://bx1sw2sla2xcx"]
+
+[ext_resource type="Script" uid="uid://cuo2y5m2rbxll" path="res://Scenes/Main/main.gd" id="1_yh5la"]
+[ext_resource type="PackedScene" uid="uid://detsj61fe4rm3" path="res://Scenes/TransitionController/transition_controller.tscn" id="2_2w1kt"]
+[ext_resource type="PackedScene" uid="uid://c85npj5qae02v" path="res://Scenes/MessageUI/message_ui.tscn" id="3_qw60k"]
+
+[node name="Main" type="Node" node_paths=PackedStringArray("world2d", "ui", "transition_controller")]
+script = ExtResource("1_yh5la")
+world2d = NodePath("SceneLayer/World2D")
+ui = NodePath("UILayer/UI")
+transition_controller = NodePath("TransitionLayer/TransitionController")
+initial_scene_path = "res://Scenes/SplashScreen/splash_screen_manager.tscn"
+
+[node name="SceneLayer" type="CanvasLayer" parent="."]
+
+[node name="World2D" type="Node2D" parent="SceneLayer"]
+
+[node name="UILayer" type="CanvasLayer" parent="."]
+layer = 2
+
+[node name="UI" type="Control" parent="UILayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TransitionLayer" type="CanvasLayer" parent="."]
+process_mode = 3
+layer = 3
+
+[node name="TransitionController" parent="TransitionLayer" instance=ExtResource("2_2w1kt")]
+
+[node name="MessageLayer" type="CanvasLayer" parent="."]
+layer = 4
+
+[node name="MessageUI" parent="MessageLayer" instance=ExtResource("3_qw60k")]

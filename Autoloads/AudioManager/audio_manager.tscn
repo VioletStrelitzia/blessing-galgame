@@ -1,0 +1,15 @@
+[gd_scene load_steps=5 format=3 uid="uid://ce2ovnvp06ph3"]
+
+[ext_resource type="Script" uid="uid://ccxt8u4xkb21m" path="res://Autoloads/AudioManager/audio_manager.gd" id="1_twpg5"]
+[ext_resource type="PackedScene" uid="uid://dimsb15gkeqg8" path="res://Autoloads/AudioManager/music_audio_player_manager.tscn" id="2_htuc2"]
+[ext_resource type="PackedScene" uid="uid://brvc6fey4gwcw" path="res://Autoloads/AudioManager/sfx_audio_player_manager.tscn" id="3_6hn7u"]
+[ext_resource type="PackedScene" uid="uid://c35mgyvrcvs82" path="res://Autoloads/AudioManager/voice_audio_player_manager.tscn" id="4_6hn7u"]
+
+[node name="AudioManager" type="Node"]
+script = ExtResource("1_twpg5")
+
+[node name="MusicManager" parent="." instance=ExtResource("2_htuc2")]
+
+[node name="SFXManager" parent="." instance=ExtResource("3_6hn7u")]
+
+[node name="VoiceManager" parent="." instance=ExtResource("4_6hn7u")]

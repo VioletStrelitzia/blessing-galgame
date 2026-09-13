@@ -1,0 +1,88 @@
+[gd_scene load_steps=2 format=3 uid="uid://jxp25la85l1x"]
+
+[ext_resource type="Script" uid="uid://dxqfn176mjdte" path="res://Scenes/GalUI/gal_ui.gd" id="1_q207f"]
+
+[node name="GalUI" type="Control" node_paths=PackedStringArray("load_button", "save_button", "skip_button", "auto_button")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+script = ExtResource("1_q207f")
+load_button = NodePath("HBoxContainer/Panel/MarginContainer/ButtonHBox/Load")
+save_button = NodePath("HBoxContainer/Panel/MarginContainer/ButtonHBox/Save")
+skip_button = NodePath("HBoxContainer/Panel/MarginContainer/ButtonHBox/Skip")
+auto_button = NodePath("HBoxContainer/Panel/MarginContainer/ButtonHBox/Auto")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -225.0
+offset_right = 225.0
+offset_bottom = 40.0
+grow_horizontal = 2
+focus_behavior_recursive = 1
+alignment = 1
+
+[node name="Panel" type="Panel" parent="HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 1
+
+[node name="MarginContainer" type="MarginContainer" parent="HBoxContainer/Panel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 5
+theme_override_constants/margin_top = 5
+theme_override_constants/margin_right = 5
+theme_override_constants/margin_bottom = 5
+
+[node name="ButtonHBox" type="HBoxContainer" parent="HBoxContainer/Panel/MarginContainer"]
+layout_mode = 2
+focus_behavior_recursive = 1
+
+[node name="Load" type="Button" parent="HBoxContainer/Panel/MarginContainer/ButtonHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "载入"
+
+[node name="Save" type="Button" parent="HBoxContainer/Panel/MarginContainer/ButtonHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "保存"
+
+[node name="Skip" type="Button" parent="HBoxContainer/Panel/MarginContainer/ButtonHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "跳过"
+
+[node name="Auto" type="Button" parent="HBoxContainer/Panel/MarginContainer/ButtonHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "自动"
+
+[node name="Setting" type="Button" parent="HBoxContainer/Panel/MarginContainer/ButtonHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "设置"
+
+[node name="Exit" type="Button" parent="HBoxContainer/Panel/MarginContainer/ButtonHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "返回"
+
+[connection signal="pressed" from="HBoxContainer/Panel/MarginContainer/ButtonHBox/Load" to="." method="_on_load_pressed"]
+[connection signal="pressed" from="HBoxContainer/Panel/MarginContainer/ButtonHBox/Save" to="." method="_on_save_pressed"]
+[connection signal="pressed" from="HBoxContainer/Panel/MarginContainer/ButtonHBox/Skip" to="." method="_on_skip_pressed"]
+[connection signal="pressed" from="HBoxContainer/Panel/MarginContainer/ButtonHBox/Auto" to="." method="_on_auto_pressed"]
+[connection signal="pressed" from="HBoxContainer/Panel/MarginContainer/ButtonHBox/Setting" to="." method="_on_setting_pressed"]
+[connection signal="pressed" from="HBoxContainer/Panel/MarginContainer/ButtonHBox/Exit" to="." method="_on_exit_pressed"]

@@ -1,0 +1,20 @@
+[gd_scene load_steps=2 format=3 uid="uid://2td2ja1ej6s6"]
+
+[ext_resource type="Script" uid="uid://bhj4o4loqbow" path="res://Scenes/MessageUI/message_item.gd" id="1_thn26"]
+
+[node name="MessageItem" type="PanelContainer"]
+custom_minimum_size = Vector2(300, 30)
+offset_right = 40.0
+offset_bottom = 40.0
+mouse_filter = 2
+script = ExtResource("1_thn26")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="RichTextLabel" type="RichTextLabel" parent="HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="TextureRect" type="TextureRect" parent="HBoxContainer"]
+layout_mode = 2

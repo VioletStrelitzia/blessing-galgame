@@ -1,0 +1,26 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+.vscode/
+export_presets.cfg
+*.exe
+*.pck
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
+*.bz2
+*.xz
+
+# 编译产物（由 scripts/ 在首次运行时自动再生成）
+/GalSs/
+
+# 运行时产物
+/Saves/
+log.txt
+/mods/
+
+# 历史归档（开源前的完整 git 历史，仅本地保存）
+/.git-archive/
+*.tmp

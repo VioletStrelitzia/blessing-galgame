@@ -1,0 +1,87 @@
+[gd_scene load_steps=2 format=3 uid="uid://bt655t80iougf"]
+
+[ext_resource type="Script" uid="uid://x0niavn1f65n" path="res://Scenes/DialogueUI/dialogue_ui.gd" id="1_q8n66"]
+
+[node name="DialogueUI" type="Control" node_paths=PackedStringArray("charater_name_text", "text_box", "avatar")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_q8n66")
+charater_name_text = NodePath("DialogueHBox/Panel/MarginContainer/VBoxContainer/CharacterName")
+text_box = NodePath("DialogueHBox/Panel/MarginContainer/VBoxContainer/Dialogue")
+avatar = NodePath("DialogueHBox/Avatar")
+metadata/_edit_lock_ = true
+
+[node name="DialogueHBox" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -209.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+metadata/_edit_lock_ = true
+
+[node name="Avatar" type="TextureRect" parent="DialogueHBox"]
+custom_minimum_size = Vector2(250, 0)
+layout_mode = 2
+mouse_filter = 2
+expand_mode = 3
+stretch_mode = 5
+metadata/_edit_lock_ = true
+
+[node name="Panel" type="Panel" parent="DialogueHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+metadata/_edit_lock_ = true
+
+[node name="MarginContainer" type="MarginContainer" parent="DialogueHBox/Panel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/margin_left = 40
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 40
+theme_override_constants/margin_bottom = 20
+metadata/_edit_lock_ = true
+
+[node name="VBoxContainer" type="VBoxContainer" parent="DialogueHBox/Panel/MarginContainer"]
+layout_mode = 2
+mouse_filter = 2
+metadata/_edit_lock_ = true
+
+[node name="CharacterName" type="RichTextLabel" parent="DialogueHBox/Panel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+mouse_filter = 2
+theme_override_font_sizes/normal_font_size = 32
+theme_override_font_sizes/bold_font_size = 32
+theme_override_font_sizes/bold_italics_font_size = 32
+theme_override_font_sizes/italics_font_size = 32
+theme_override_font_sizes/mono_font_size = 32
+metadata/_edit_lock_ = true
+
+[node name="Dialogue" type="RichTextLabel" parent="DialogueHBox/Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 2
+theme_override_font_sizes/normal_font_size = 24
+theme_override_font_sizes/bold_font_size = 24
+theme_override_font_sizes/bold_italics_font_size = 24
+theme_override_font_sizes/italics_font_size = 24
+theme_override_font_sizes/mono_font_size = 24
+bbcode_enabled = true
+fit_content = true
+autowrap_mode = 1
+metadata/_edit_lock_ = true

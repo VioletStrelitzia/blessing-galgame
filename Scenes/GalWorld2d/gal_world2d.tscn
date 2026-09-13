@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3 uid="uid://bn0hrsyfxg72u"]
+
+[ext_resource type="Script" uid="uid://big0j5wcrdk2q" path="res://Scenes/GalWorld2d/gal_world_2d.gd" id="1_08yld"]
+
+[node name="GalWorld2d" type="Node2D" node_paths=PackedStringArray("background")]
+script = ExtResource("1_08yld")
+background = NodePath("Background")
+
+[node name="Background" type="Sprite2D" parent="."]
+centered = false

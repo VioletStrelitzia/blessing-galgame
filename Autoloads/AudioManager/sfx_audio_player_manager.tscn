@@ -1,0 +1,26 @@
+[gd_scene load_steps=2 format=3 uid="uid://brvc6fey4gwcw"]
+
+[ext_resource type="Script" uid="uid://be47cml4jmhms" path="res://Autoloads/AudioManager/sfx_audio_player_manager.gd" id="1_6ew76"]
+
+[node name="SFXAudioPlayerManager" type="Node" node_paths=PackedStringArray("players")]
+process_mode = 1
+script = ExtResource("1_6ew76")
+players = [NodePath("Player0"), NodePath("Player1"), NodePath("Player2"), NodePath("Player3"), NodePath("Player4"), NodePath("Player5")]
+
+[node name="Player0" type="AudioStreamPlayer" parent="."]
+bus = &"SFX"
+
+[node name="Player1" type="AudioStreamPlayer" parent="."]
+bus = &"SFX"
+
+[node name="Player2" type="AudioStreamPlayer" parent="."]
+bus = &"SFX"
+
+[node name="Player3" type="AudioStreamPlayer" parent="."]
+bus = &"SFX"
+
+[node name="Player4" type="AudioStreamPlayer" parent="."]
+bus = &"SFX"
+
+[node name="Player5" type="AudioStreamPlayer" parent="."]
+bus = &"SFX"

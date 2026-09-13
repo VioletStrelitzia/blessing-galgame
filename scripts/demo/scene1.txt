@@ -1,0 +1,45 @@
+// ============================================
+// Blessing Galgame Engine —— 最小演示剧本 1
+// 演示：背景设置、BGM、立绘动画组、对话/旁白、后指令、选项分支
+// ============================================
+
+// 前指令（< 开头）：在首句对话显示前完成场景布置
+< bg set demo_stage
+< music play demo_bgm 0 true
+
+// 立绘动画组：character 开始收集，char play 播放
+< character 0
+< char setup demo_char_a 0.3 0.95
+< char show 0.6
+< char play 0
+
+引路人: 欢迎来到 Blessing Galgame Engine 的最小演示。
+引路人: 每一句话就是一个「对话块」：前指令在对话前执行，后指令在对话后执行。
+这是旁白——不带说话者的行会被视为旁白。
+
+// 后指令（> 开头）：这句对话显示之后切换背景
+引路人: 注意看，这句说完之后背景会切换。
+> bg set demo_stage_night
+
+// 立绘移动（底部中心锚点）
+< character 0
+< char move 0.5 0.95 1.0
+< char play 0
+
+引路人: 立绘可以移动、换图、淡入淡出。
+引路人: 接下来是一个选项分支，请选择。
+
+// 选项分支：option 后紧跟该分支的内容，option end 收尾
+< option "继续看第二个场景"
+引路人: 好，我们跳转到第二个脚本。
+< jump demo_scene2
+
+< option "留在这里"
+引路人: 没问题，那我们直接走向尾声。
+
+< option end
+
+// 共通部分
+引路人: 你可以试试主菜单的存档、读档和设置功能。
+引路人: 演示到此结束，感谢体验！
+< jump main_menu

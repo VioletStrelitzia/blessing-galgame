@@ -1,0 +1,32 @@
+// ============================================
+// Blessing Galgame Engine —— 最小演示剧本 2
+// 演示：跨脚本跳转目标、立绘换图/淡出、起始幕设置
+// ============================================
+
+< bg set demo_stage_night
+
+< character 1
+< char setup demo_char_b 0.7 0.95
+< char show 0.6
+< char play 1
+
+引路人: 这是第二个脚本文件，我们是通过 jump 指令跳过来的。
+
+// 更换立绘（不换位置）
+< character 1
+< char texture demo_char_a
+< char play 1
+
+引路人: char texture 指令可以更换立绘资源。
+引路人: 接下来角色会淡出。
+
+< character 1
+< char hide 0.8
+< char play 1
+
+引路人: 演示到此结束。
+引路人: 感谢体验 Blessing Galgame Engine！
+
+// 把起始幕设回演示 1，然后返回主菜单
+< begin script demo_scene1
+< jump main_menu

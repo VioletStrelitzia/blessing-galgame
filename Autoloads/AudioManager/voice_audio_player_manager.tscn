@@ -1,0 +1,14 @@
+[gd_scene load_steps=3 format=3 uid="uid://c35mgyvrcvs82"]
+
+[ext_resource type="Script" uid="uid://cht3e202w8fhj" path="res://Autoloads/AudioManager/voice_audio_player_manager.gd" id="1_uuvc1"]
+[ext_resource type="Script" uid="uid://budyrm3l1x748" path="res://Autoloads/AudioManager/audio_event_manager.gd" id="2_y1v7m"]
+
+[node name="VoiceManager" type="Node" node_paths=PackedStringArray("player")]
+script = ExtResource("1_uuvc1")
+player = NodePath("VoicePlayer")
+
+[node name="VoicePlayer" type="AudioStreamPlayer" parent="."]
+script = ExtResource("2_y1v7m")
+metadata/_custom_type_script = "uid://budyrm3l1x748"
+
+[connection signal="finished" from="VoicePlayer" to="." method="_on_voice_player_finished"]

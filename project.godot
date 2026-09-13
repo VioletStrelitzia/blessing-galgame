@@ -1,0 +1,44 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Blessing Galgame Engine"
+run/main_scene="uid://bx1sw2sla2xcx"
+config/features=PackedStringArray("4.5", "GL Compatibility")
+run/max_fps=60
+boot_splash/bg_color=Color(0, 0, 0, 1)
+boot_splash/show_image=false
+boot_splash/fullsize=false
+boot_splash/use_filter=false
+config/icon="uid://b0cx15gmxcbnt"
+
+[autoload]
+
+Global="*res://Autoloads/global.gd"
+ResourceManager="*res://Autoloads/resource_manager.gd"
+AudioManager="*res://Autoloads/AudioManager/audio_manager.tscn"
+SceneManager="*res://Autoloads/scene_manager.gd"
+StoryManager="*res://Autoloads/story_manager.gd"
+SaveManager="*res://Autoloads/save_manager.gd"
+MessageManager="*res://Autoloads/message_manager.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/resizable=false
+
+[file_customization]
+
+folder_colors={
+"res://Scenes/": "purple",
+"res://scripts/": "gray"
+}
