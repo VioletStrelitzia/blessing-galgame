@@ -43,17 +43,15 @@ func play_with_sorted_events(offset: float = 0) -> void:
 	play(offset)
 
 
-## 停止播放，并执行所有尚未执行的事件
+## 停止播放，并执行所有尚未执行的事件；无论是否在播放都会清空事件队列
 func stop_and_clear_events(execute_all: bool = true) -> void:
-	if not playing:
-		return
-	
-	self.stop()
-	if execute_all:
-		for i in range(idx, events.size()):
-			var event = events[i]
-			if event.has("callback") and event.callback.is_valid():
-				event.callback.call()
+	if playing:
+		self.stop()
+		if execute_all:
+			for i in range(idx, events.size()):
+				var event = events[i]
+				if event.has("callback") and event.callback.is_valid():
+					event.callback.call()
 	clear_events()
 
 

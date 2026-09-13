@@ -85,7 +85,7 @@ func _resolve_path(res_type: String, res_key: String) -> String:
 	elif res_type == "texture":
 		base_dir = Global.config["image_dir"]
 	elif res_type == "script":
-		base_dir = Global.config["scripts_dir"]["save"]
+		base_dir = Global.config["scripts"]["save_dir"]
 	
 	if not base_dir.is_empty():
 		if base_dir.begins_with("res://"):
