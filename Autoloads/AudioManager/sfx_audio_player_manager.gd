@@ -1,4 +1,6 @@
 class_name SFXAudioPlayerManager extends Node
+const LOG_TAG := "SFX"
+
 
 @export var player_num: int = 6
 @export var cur_player_index: int = 0
@@ -15,7 +17,7 @@ func set_bus(bus_name: String):
 	self._bus_name = bus_name
 	for player in players:
 		player.bus = bus_name
-	GalLogger.info("音效管理器已设置总线为: " + bus_name)
+	GalLogger.info(LOG_TAG, "音效管理器已设置总线为: " + bus_name)
 
 
 func play(audio: AudioStream, offset: float = 0):
@@ -29,7 +31,7 @@ func play(audio: AudioStream, offset: float = 0):
 	else:
 		# 如果总线不存在，则默认使用 0dB
 		next_player.volume_db = 0.0
-		GalLogger.warn("在音效管理器中找不到总线: '%s'" % _bus_name)
+		GalLogger.warn(LOG_TAG, "在音效管理器中找不到总线: '%s'" % _bus_name)
 
 	next_player.stream = audio
 	next_player.play(offset)

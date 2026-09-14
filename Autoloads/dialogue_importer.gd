@@ -1,4 +1,6 @@
 class_name DialogueImporter extends Node
+const LOG_TAG := "Importer"
+
 
 var check: bool = true
 var read_dir: String = "res://scripts"
@@ -80,7 +82,7 @@ func _ready() -> void:
 	import_dialogues(read_dir)
 	if need_update:
 		Utils.save_json(hash_file_path, saved_hash)
-		GalLogger.info("导入完成，已更新哈希值和资源列表")
+		GalLogger.info(LOG_TAG, "导入完成，已更新哈希值和资源列表")
 	res_update_load_finished.emit()
 
 func import_dialogues(path: String):
@@ -94,7 +96,7 @@ func import_dialogues(path: String):
 func import_dialogue(text_path: String, output_path: String) -> void:
 	var current_hash = calculate_text_hash(text_path)
 	if current_hash.is_empty():
-		GalLogger.error("无法计算文本哈希")
+		GalLogger.error(LOG_TAG, "无法计算文本哈希")
 		return
 	
 	var need_reimport = false
@@ -106,10 +108,10 @@ func import_dialogue(text_path: String, output_path: String) -> void:
 		need_update = true
 	
 	if not need_reimport:
-		GalLogger.info("资源无变化: " + text_path)
+		GalLogger.debug(LOG_TAG, "资源无变化: " + text_path)
 		return
 	
-	GalLogger.info("导入资源: " + text_path)
+	GalLogger.debug(LOG_TAG, "导入资源: " + text_path)
 	
 	var file = Utils.open_file(text_path, FileAccess.READ)
 	var text = file.get_as_text()
@@ -121,9 +123,9 @@ func import_dialogue(text_path: String, output_path: String) -> void:
 		Utils.make_dir_absolute(output_path.get_base_dir())
 	
 	if ResourceSaver.save(dialogue_group, output_path) != OK:
-		GalLogger.error("保存失败: " + output_path)
+		GalLogger.error(LOG_TAG, "保存失败: " + output_path)
 	else:
-		GalLogger.info("生成成功: " + output_path)
+		GalLogger.debug(LOG_TAG, "生成成功: " + output_path)
 
 func calculate_text_hash(file_path: String) -> String:
 	var ctx = HashingContext.new()
@@ -196,7 +198,7 @@ static func parse_dialogue_text(line: String) -> GalEventItem:
 			else:
 				return PrevInstruction.new(head, params_array)
 		else:
-			GalLogger.warn("未定义指令: " + cont)
+			GalLogger.warn(LOG_TAG, "未定义指令: " + cont)
 			return null
 
 	# 3. 对话解析

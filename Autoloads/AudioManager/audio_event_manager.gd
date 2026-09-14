@@ -1,4 +1,6 @@
 class_name AudioEventManager extends AudioStreamPlayer
+const LOG_TAG := "VoiceEvent"
+
 
 ## 事件列表，每个事件都是一个字典，包含 "time" 和 "callback"
 var events: Array[Dictionary] = []
@@ -31,7 +33,7 @@ func _process(delta: float) -> void:
 ## 添加事件
 func add_event(time: float, callback: Callable) -> void:
 	if playing:
-		GalLogger.warn("不能在播放时动态添加事件")
+		GalLogger.warn(LOG_TAG, "不能在播放时动态添加事件")
 	else:
 		events.append({"time": time, "callback": callback})
 

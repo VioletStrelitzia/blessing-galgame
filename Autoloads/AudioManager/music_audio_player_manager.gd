@@ -1,4 +1,6 @@
 class_name MusicAudioPlayerManager extends Node
+const LOG_TAG := "Music"
+
 
 @export var player_num: int = 2
 @export var cur_player_index: int = 0
@@ -17,7 +19,7 @@ func set_bus(bus_name: String):
 	self._bus_name = bus_name
 	for player in players:
 		player.bus = bus_name
-	GalLogger.info("音乐管理器已设置总线为: " + bus_name)
+	GalLogger.info(LOG_TAG, "音乐管理器已设置总线为: " + bus_name)
 
 
 func play(
@@ -91,7 +93,7 @@ func _fade_in_and_play(
 	if bus_index != -1:
 		target_db = AudioServer.get_bus_volume_db(bus_index)
 	else:
-		GalLogger.warn("在音乐管理器中找不到总线: '%s'，将使用默认音量 0 dB" % _bus_name)
+		GalLogger.warn(LOG_TAG, "在音乐管理器中找不到总线: '%s'，将使用默认音量 0 dB" % _bus_name)
 
 	# 2. 设置循环逻辑
 	if loop and not player.finished.is_connected(player.play):

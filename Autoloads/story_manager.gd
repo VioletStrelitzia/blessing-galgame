@@ -1,4 +1,6 @@
 extends Node
+const LOG_TAG := "StoryManager"
+
 
 @export var dialogue_ui: DialogueUI
 @export var gal_ui: GalUI
@@ -187,7 +189,7 @@ func _build_jump_table() -> void:
 				Instruction.Head.ELSE_IF, Instruction.Head.ELSE:
 					# 接到同一层级的下一个分支
 					if temp_stack.is_empty():
-						GalLogger.error("第 %d 行发现孤立的 ELSE/ELSE_IF" % i)
+						GalLogger.error(LOG_TAG, "第 %d 行发现孤立的 ELSE/ELSE_IF" % i)
 						continue
 					
 					var last = temp_stack.back()
@@ -196,7 +198,7 @@ func _build_jump_table() -> void:
 					
 				Instruction.Head.END_IF:
 					if temp_stack.is_empty():
-						GalLogger.error("第 %d 行发现孤立的 END_IF" % i)
+						GalLogger.error(LOG_TAG, "第 %d 行发现孤立的 END_IF" % i)
 						continue
 						
 					var last = temp_stack.pop_back()
@@ -214,7 +216,7 @@ func run_script(mode: IterateMode = IterateMode.DEFAULT) -> void:
 	while idx < cur_script.seq.size():
 		var cur_item := cur_script.seq[idx]
 		if log_idx != idx:
-			GalLogger.infos(str(cur_item))
+			GalLogger.debug(LOG_TAG, "执行: %s" % cur_item)
 			log_idx = idx
 		match iterate_mode:
 			IterateMode.INITIALIZATION:
@@ -335,7 +337,7 @@ func _music_play(ins: Instruction) -> bool:
 	if audio_stream:
 		AudioManager.play_music(audio_stream, from_position, 1.0, 1.0, loop)
 	else:
-		GalLogger.error("加载 BGM \"" + key + "\"失败")
+		GalLogger.error(LOG_TAG, "加载 BGM \"" + key + "\"失败")
 	return false
 
 
@@ -366,7 +368,7 @@ func _voice_play(ins: Instruction) -> bool:
 	if audio_stream:
 		AudioManager.play_voice(audio_stream, offset)
 	else:
-		GalLogger.error("加载语音\"" + key + "\"失败")
+		GalLogger.error(LOG_TAG, "加载语音\"" + key + "\"失败")
 	return false
 
 
@@ -379,7 +381,7 @@ func _sfx_play(ins: Instruction) -> bool:
 	if audio_stream:
 		AudioManager.play_sfx(audio_stream, offset)
 	else:
-		GalLogger.error("加载音效\"" + key + "\"失败")
+		GalLogger.error(LOG_TAG, "加载音效\"" + key + "\"失败")
 	return false
 
 
@@ -391,7 +393,7 @@ func _set_background(ins: Instruction) -> bool:
 	if background_tex:
 		gal_world2d.background.texture = background_tex
 	else:
-		GalLogger.error("加载背景失败：" + key)
+		GalLogger.error(LOG_TAG, "加载背景失败：" + key)
 	return false
 
 
@@ -401,7 +403,7 @@ func _voice_event(ins: Instruction) -> bool:
 	
 	var next_item := cur_script.seq[idx]
 	if next_item is not Instruction:
-		GalLogger.error("语音嵌入指令后未跟随一个指令")
+		GalLogger.error(LOG_TAG, "语音嵌入指令后未跟随一个指令")
 	idx += 1
 	AudioManager.voice_manager.add_event(delay, execute.bind(next_item))
 	return false
@@ -554,7 +556,7 @@ func _option_begin(ins: Instruction) -> bool:
 	
 	# 没找到 OPTION_END 时给出提示
 	if current_option_end_idx == -1:
-		GalLogger.warn("未找到 OPTION_END，选项逻辑可能出错")
+		GalLogger.warn(LOG_TAG, "未找到 OPTION_END，选项逻辑可能出错")
 	
 	# 显示 UI
 	await dialogue_ui.fade_out().finished
@@ -587,10 +589,10 @@ func _option_begin(ins: Instruction) -> bool:
 	current_option_waiter = null
 
 	# 打印当前模式（调试用）
-	GalLogger.infos("当前的 manager_mode: " + str(manager_mode))
+	GalLogger.debug(LOG_TAG, "当前模式: %s" % manager_mode)
 	
 	if result.get("canceled", false):
-		GalLogger.info("选择被中断")
+		GalLogger.info(LOG_TAG, "选择被中断")
 		# 取消一般来自退出/读档，终止本轮脚本执行
 		return true
 	
@@ -654,7 +656,7 @@ func _evaluate_condition(key: String, operator: String, value: float) -> bool:
 		"<=":
 			return var_value <= value
 		_:
-			GalLogger.warn("未知的比较运算符: " + operator + "，使用 == 作为默认值")
+			GalLogger.warn(LOG_TAG, "未知的比较运算符: " + operator + "，使用 == 作为默认值")
 			return var_value == value
 
 
@@ -753,7 +755,7 @@ func _get_last_dialogue_idx() -> int:
 
 func load_game(sg: SavedGame):
 	if sg.script_name.is_empty():
-		GalLogger.warn("要先存档才能载入")
+		GalLogger.warn(LOG_TAG, "要先存档才能载入")
 		return
 	
 	# 清理状态

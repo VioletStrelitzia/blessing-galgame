@@ -1,4 +1,6 @@
 extends Node
+const LOG_TAG := "Main"
+
 
 @export var world2d: Node2D
 @export var ui: Control
@@ -11,7 +13,7 @@ func _ready() -> void:
 	SceneManager.scene_managers["world2d"]["mount_point"] = world2d
 	SceneManager.scene_managers["ui"]["mount_point"] = ui
 	SceneManager.transition_controller = transition_controller
-	GalLogger.info("加载完毕")
+	GalLogger.info(LOG_TAG, "加载完毕")
 	SceneManager.mount_and_unmount({
 		"ui": {"启动画面": initial_scene_path}
 	}, {}, 0, 0, false)

@@ -1,4 +1,6 @@
 class_name OptionUI extends Control
+const LOG_TAG := "OptionUI"
+
 
 signal option_made(index: int)
 @warning_ignore("unused_signal")
@@ -46,7 +48,7 @@ func _clear_options() -> void:
 
 func _on_option_button_pressed(index: int) -> void:
 	option_made.emit(index)
-	GalLogger.infos("选择了选项索引", index)
+	GalLogger.info(LOG_TAG, "选项已选择: index=%d" % index)
 	# 卸载但不释放（保留在pool中）
 	SceneManager.unmount({
 		"ui": {"选择UI": ""}

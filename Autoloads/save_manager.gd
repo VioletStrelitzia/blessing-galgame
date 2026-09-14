@@ -1,4 +1,6 @@
 extends Node
+const LOG_TAG := "SaveManager"
+
 
 var SAVE_DIR = OS.get_executable_path().get_base_dir().path_join(Global.config["save_dir"])
 
@@ -39,7 +41,7 @@ func load_save_list() -> void:
 	save_data_list.clear()
 	
 	if not DirAccess.dir_exists_absolute(SAVE_DIR):
-		GalLogger.warn("存档目录不存在: " + SAVE_DIR)
+		GalLogger.warn(LOG_TAG, "存档目录不存在: " + SAVE_DIR)
 		return
 	
 	# 获取所有 .tres 文件
@@ -77,12 +79,12 @@ func _load_save_file(file_path: String) -> SavedGame:
 		return null
 	
 	if not ResourceLoader.exists(file_path):
-		GalLogger.warn("存档资源不存在: " + file_path)
+		GalLogger.warn(LOG_TAG, "存档资源不存在: " + file_path)
 		return null
 	
 	var saved_game = load(file_path) as SavedGame
 	if not saved_game:
-		GalLogger.warn("无法加载存档: " + file_path)
+		GalLogger.warn(LOG_TAG, "无法加载存档: " + file_path)
 		return null
 	
 	return saved_game
@@ -174,7 +176,7 @@ func _format_timestamp(timestamp: int) -> String:
 func save_game(slot_index: int = -1, title: String = "") -> bool:
 	# 检查是否有可保存内容
 	if StoryManager.cur_script_name.is_empty():
-		GalLogger.warn("当前没有可保存的剧本")
+		GalLogger.warn(LOG_TAG, "当前没有可保存的剧本")
 		return false
 	
 	# 生成文件名
@@ -207,21 +209,21 @@ func save_game(slot_index: int = -1, title: String = "") -> bool:
 	var screenshot = Utils.take_screenshot()
 	
 	if screenshot:
-		GalLogger.infos(screenshot)
+		GalLogger.debug(LOG_TAG, "截图: %s" % screenshot)
 		var size = save_ui.texture_rect.size
 		screenshot.resize(size[0], size[1], Image.INTERPOLATE_LANCZOS)
 		if screenshot.save_png(thumbnail_path) == OK:
-			GalLogger.infos(thumbnail_path)
+			GalLogger.debug(LOG_TAG, "缩略图路径: %s" % thumbnail_path)
 			saved_game.thumbnail_path = thumbnail_path
-			GalLogger.info("缩略图已保存: " + thumbnail_path)
+			GalLogger.info(LOG_TAG, "缩略图已保存: " + thumbnail_path)
 		else:
-			GalLogger.error("缩略图保存失败")
+			GalLogger.error(LOG_TAG, "缩略图保存失败")
 	
 	# 保存资源
 	if ResourceSaver.save(saved_game, file_path) == OK:
-		GalLogger.info("存档已保存: " + file_path)
+		GalLogger.info(LOG_TAG, "存档已保存: " + file_path)
 	else:
-		GalLogger.error("存档保存失败: " + file_path)
+		GalLogger.error(LOG_TAG, "存档保存失败: " + file_path)
 		return false
 		
 	MessageManager.show("已保存存档", "success")
@@ -240,16 +242,16 @@ func save_screenshot(slot_index: int):
 		var path = SAVE_DIR.path_join("save_%d.png" % slot_index)
 		
 		if screenshot.save_png(path) == OK:
-			GalLogger.infos("缩略图已保存至:", path)
+			GalLogger.debug(LOG_TAG, "缩略图已保存: %s" % path)
 		else:
-			GalLogger.error("缩略图保存失败")
+			GalLogger.error(LOG_TAG, "缩略图保存失败")
 
 
 ## 加载指定索引的存档
 func load_game(item_index: int) -> SavedGame:
 	# 检查索引
 	if item_index < 0 or item_index >= save_data_list.size():
-		GalLogger.error("存档索引无效: " + str(item_index))
+		GalLogger.error(LOG_TAG, "存档索引无效: " + str(item_index))
 		return null
 	
 	var save_data = save_data_list[item_index]
@@ -257,12 +259,12 @@ func load_game(item_index: int) -> SavedGame:
 	var saved_game: SavedGame = save_data.get("saved_game")
 	
 	if not saved_game:
-		GalLogger.error("存档数据无效")
+		GalLogger.error(LOG_TAG, "存档数据无效")
 		return null
 	
 	# 文件存在性检查
 	if not FileAccess.file_exists(file_path):
-		GalLogger.errors("存档文件不存在:", file_path, "从列表中移除")
+		GalLogger.warn(LOG_TAG, "存档文件缺失，已从列表移除: %s" % file_path)
 		# 从列表中删除
 		save_data_list.remove_at(item_index)
 		update_ui()
@@ -271,7 +273,7 @@ func load_game(item_index: int) -> SavedGame:
 	# 重新加载一次，拿最新数据
 	var reloaded_game = _load_save_file(file_path)
 	if not reloaded_game:
-		GalLogger.errors("无法重新加载存档:", file_path, "从列表中移除")
+		GalLogger.warn(LOG_TAG, "存档重新加载失败，已从列表移除: %s" % file_path)
 		# 从列表中删除
 		save_data_list.remove_at(item_index)
 		update_ui()
@@ -279,12 +281,12 @@ func load_game(item_index: int) -> SavedGame:
 	
 	# 简单检查数据
 	if reloaded_game.script_name.is_empty():
-		GalLogger.warn("存档数据不完整: " + file_path)
+		GalLogger.warn(LOG_TAG, "存档数据不完整: " + file_path)
 	
 	# 回写列表中的数据
 	save_data_list[item_index]["saved_game"] = reloaded_game
 	
-	GalLogger.info("存档加载成功: " + file_path)
+	GalLogger.info(LOG_TAG, "存档加载成功: " + file_path)
 	return reloaded_game
 
 
@@ -296,7 +298,7 @@ func get_save_list() -> Array[Dictionary]:
 ## 删除指定索引的存档
 func delete_save(item_index: int) -> bool:
 	if item_index < 0 or item_index >= save_data_list.size():
-		GalLogger.errors("存档索引无效:", str(item_index))
+		GalLogger.error(LOG_TAG, "存档索引无效: %d" % item_index)
 		return false
 	
 	var save_data = save_data_list[item_index]
@@ -306,14 +308,14 @@ func delete_save(item_index: int) -> bool:
 	# 删除存档文件
 	if FileAccess.file_exists(file_path):
 		DirAccess.remove_absolute(file_path)
-		GalLogger.infos("已删除存档文件:", file_path)
+		GalLogger.info(LOG_TAG, "删除存档: %s" % file_path)
 	
 	# 删除缩略图
 	if saved_game and not saved_game.thumbnail_path.is_empty():
 		var thumbnail_path = saved_game.thumbnail_path
 		if FileAccess.file_exists(thumbnail_path):
 			DirAccess.remove_absolute(thumbnail_path)
-			GalLogger.infos("已删除缩略图:", thumbnail_path)
+			GalLogger.debug(LOG_TAG, "删除缩略图: %s" % thumbnail_path)
 	
 	# 从列表中移除
 	save_data_list.remove_at(item_index)
@@ -380,4 +382,4 @@ func _on_load_pressed() -> void:
 			get_tree().paused = false
 			SceneManager.unmount({"ui": {"存档UI": Global.scenes["存档UI"]}}, false)
 		else:
-			GalLogger.warns("载入存档失败")
+			GalLogger.warn(LOG_TAG, "载入存档失败")

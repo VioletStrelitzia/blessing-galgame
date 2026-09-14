@@ -1,4 +1,6 @@
 extends Node
+const LOG_TAG := "SceneManager"
+
 
 @export var transition_controller: SceneTransitionController
 
@@ -27,7 +29,7 @@ func _ready() -> void:
 	add_child(scene_managers["world2d"]["mount_point"])
 	add_child(scene_managers["ui"]["mount_point"])
 	
-	GalLogger.info("场景管理器初始化完毕")
+	GalLogger.info(LOG_TAG, "场景管理器初始化完毕")
 
 
 func get_scene(type: String, where: String, key: String) -> Node:
@@ -77,7 +79,7 @@ func pre_load(scenes_to_load: Dictionary) -> void:
 	for scene_type in scenes_to_load:
 		var manager = scene_managers.get(scene_type)
 		if not manager:
-			GalLogger.error("未知的场景类型 '" + scene_type + "'")
+			GalLogger.error(LOG_TAG, "未知的场景类型 '" + scene_type + "'")
 			continue
 		
 		var pool_dict = manager.pool as Dictionary
@@ -87,7 +89,7 @@ func pre_load(scenes_to_load: Dictionary) -> void:
 				continue
 			
 			var path = scenes_to_load[scene_type][scene_name]
-			GalLogger.info("预加载: " + scene_name + " - " + path)
+			GalLogger.info(LOG_TAG, "预加载: " + scene_name + " - " + path)
 			var packed_scene = load(path) as PackedScene
 			if packed_scene:
 				var node = packed_scene.instantiate()
@@ -95,19 +97,19 @@ func pre_load(scenes_to_load: Dictionary) -> void:
 				var composite_key = scene_type + "|" + scene_name
 				path_dict[composite_key] = path
 			else:
-				GalLogger.error("无法加载场景: " + path)
+				GalLogger.error(LOG_TAG, "无法加载场景: " + path)
 
 
 func mount(scenes_to_mount: Dictionary) -> void:
 	for scene_type in scenes_to_mount:
 		var manager = scene_managers.get(scene_type)
 		if not manager:
-			GalLogger.error("未知的场景类型 '" + scene_type + "'")
+			GalLogger.error(LOG_TAG, "未知的场景类型 '" + scene_type + "'")
 			continue
 		
 		var mount_point = manager.mount_point
 		if not mount_point:
-			GalLogger.error("场景类型 '" + scene_type + "' 的挂载点 未设置！")
+			GalLogger.error(LOG_TAG, "场景类型 '" + scene_type + "' 的挂载点 未设置！")
 			continue
 
 		for scene_name in scenes_to_mount[scene_type]:
@@ -136,7 +138,7 @@ func unmount(
 	for scene_type in scenes_to_unmount:
 		var manager = scene_managers.get(scene_type)
 		if not manager:
-			GalLogger.error("未知的场景类型 '" + scene_type + "'")
+			GalLogger.error(LOG_TAG, "未知的场景类型 '" + scene_type + "'")
 			continue
 		
 		# 用 .keys() 拿一份键的副本，避免遍历时修改原字典
@@ -151,7 +153,7 @@ func _mount_single_scene(scene_type: String, scene_name: String, path: String, m
 
 	# 已挂载则直接返回
 	if mounted_dict.has(scene_name):
-		GalLogger.warn("场景 '" + scene_name + "' 已经挂载，跳过。")
+		GalLogger.warn(LOG_TAG, "场景 '" + scene_name + "' 已经挂载，跳过。")
 		return
 
 	var node: Node
@@ -159,13 +161,13 @@ func _mount_single_scene(scene_type: String, scene_name: String, path: String, m
 		# 从池中取出
 		node = pool_dict[scene_name]
 		pool_dict.erase(scene_name)
-		GalLogger.info("从池中获取: " + scene_name)
+		GalLogger.info(LOG_TAG, "从池中获取: " + scene_name)
 	else:
 		# 现场加载
-		GalLogger.info("加载: " + scene_name + " - " + path)
+		GalLogger.info(LOG_TAG, "加载: " + scene_name + " - " + path)
 		var packed_scene = load(path) as PackedScene
 		if not packed_scene:
-			GalLogger.error("无法加载场景: " + path)
+			GalLogger.error(LOG_TAG, "无法加载场景: " + path)
 			return
 		node = packed_scene.instantiate()
 		var composite_key = scene_type + "|" + scene_name
@@ -184,18 +186,18 @@ func _unmount_single_scene(
 	var mount_point = manager.mount_point
 
 	if not mounted_dict.has(scene_name):
-		GalLogger.warn("尝试卸载一个未挂载的场景: " + scene_name)
+		GalLogger.warn(LOG_TAG, "尝试卸载一个未挂载的场景: " + scene_name)
 		return
 
-	GalLogger.info("卸载: " + scene_name)
+	GalLogger.info(LOG_TAG, "卸载: " + scene_name)
 	var node = mounted_dict[scene_name]
 	mount_point.remove_child(node)
 
 	if free:
-		GalLogger.info("释放: " + scene_name)
+		GalLogger.info(LOG_TAG, "释放: " + scene_name)
 		node.queue_free()
 	else:
-		GalLogger.info("加入缓存池: " + scene_name)
+		GalLogger.info(LOG_TAG, "加入缓存池: " + scene_name)
 		manager.pool[scene_name] = node
 	
 	# 从已挂载字典中移除
@@ -205,7 +207,7 @@ func _unmount_single_scene(
 func transition(animation: String, duration: float = 1.0):
 	# 空值检查，避免编辑器中未设置 transition_controller 崩溃
 	if not is_instance_valid(transition_controller):
-		GalLogger.error("SceneTransitionController 未设置或无效！")
+		GalLogger.error(LOG_TAG, "SceneTransitionController 未设置或无效！")
 		return
 		
 	if duration > 0:
@@ -216,7 +218,7 @@ func free_scenes(scenes_to_free: Dictionary):
 	for scene_type in scenes_to_free:
 		var manager = scene_managers.get(scene_type)
 		if not manager:
-			GalLogger.error("未知的场景类型 '" + scene_type + "'")
+			GalLogger.error(LOG_TAG, "未知的场景类型 '" + scene_type + "'")
 			continue
 
 		for scene_name in scenes_to_free[scene_type]:
@@ -225,6 +227,6 @@ func free_scenes(scenes_to_free: Dictionary):
 				# queue_free 确保安全释放
 				node.queue_free()
 				manager["pool"].erase(scene_name)
-				GalLogger.info("已将场景 '" + scene_name + "' 加入释放队列")
+				GalLogger.info(LOG_TAG, "已将场景 '" + scene_name + "' 加入释放队列")
 			else:
-				GalLogger.warn("尝试释放一个不在池中的场景: " + scene_name)
+				GalLogger.warn(LOG_TAG, "尝试释放一个不在池中的场景: " + scene_name)

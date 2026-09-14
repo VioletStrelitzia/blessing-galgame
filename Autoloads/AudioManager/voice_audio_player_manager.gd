@@ -1,4 +1,6 @@
 class_name VoiceAudioPlayerManager extends Node
+const LOG_TAG := "Voice"
+
 
 @export var player: AudioEventManager
 
@@ -10,7 +12,7 @@ var _bus_name: String
 func set_bus(bus_name: String):
 	self._bus_name = bus_name
 	player.bus = bus_name
-	GalLogger.info("语音管理器已设置总线为: " + bus_name)
+	GalLogger.info(LOG_TAG, "语音管理器已设置总线为: " + bus_name)
 
 
 func add_event(time: float, callback: Callable):
@@ -27,7 +29,7 @@ func play(audio: AudioStream, from_position: float = 0):
 	else:
 		# 如果总线不存在，则默认使用 0dB
 		player.volume_db = 0.0
-		GalLogger.warn("在语音管理器中找不到总线: '%s'" % _bus_name)
+		GalLogger.warn(LOG_TAG, "在语音管理器中找不到总线: '%s'" % _bus_name)
 
 	player.stream = audio
 	player.play_with_sorted_events(from_position)
