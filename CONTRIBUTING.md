@@ -12,11 +12,16 @@ Blessing Galgame Engine 的协作约定。所有贡献（包括维护者本人�
 - 工作分支与 PR 必须关联 Issue：PR 描述首行写 `Closes #<编号>`，合并后 Issue 自动关闭；
 - 琐碎修复（错别字、注释）可直接提 PR，不必开 Issue。
 
-## 2. 分支模型
+## 2. 分支模型（Trunk-Based Development）
 
-- `main`：主干，始终保持可运行状态（冒烟测试通过）；**禁止直接向 main 提交**；
-- 工作分支命名：`<type>/<简短英文描述>`，如 `feat/web-editor`、`fix/save-replay`；`type` 与提交类型一致（见下）；
-- 合并走 PR：即使是个人项目，也要求自己产出 PR 式 diff、自审（或请合作者审）通过后再合并；合并后删除分支。
+本项目采用**主干开发（TBD）**：`main` 是唯一常驻分支，永远保持可运行。
+
+- **main = 主干**：只接受 PR 合入；CI 绿灯（第 6 节冒烟三命令）是合并前提；
+- **工作分支短命**（原则上不超过几天）：`<工作线>/<描述>`，如 `gals/web-editor`、`ui/theme-base`；从 main 切出、回合 main，合入即删；
+- **工作线不是分支**：BGalS 脚本线、UI 线、scene 挂载线等长期工作线用 GitHub 标签（`line/gals`、`line/ui`、`line/scene-mount`）与 ROADMAP 条目跟踪，不开常驻分支；
+- **暗着陆纪律**：未完成的功能允许合入 main，但不得接入演示路径（先例：`var`/`scene`/`trans` 指令已注册于解析器而未接运行时）；
+- **hotfix**：从 main 切 `hotfix/xxx`，修好后 PR 回 main（CI 绿即可），打修订 tag；
+- 明确取消：dev/test 常驻分支、回灌规则、验收批次制——验收职能由预发布 tag 承担（见第 7 节）。
 
 ## 3. Commit 规范
 
@@ -75,5 +80,6 @@ godot --headless --path . -s test/smoke_test.gd   # 冒烟测试 ok=true
 
 ## 7. 发布
 
-- 语义化版本 tag：`v<主>.<次>.<修订>`，功能集齐了打次版本，修复打修订号；
+- 语义化版本 tag：`v<主>.<次>.<修订>`；
+- 发布流：功能攒够一个可验收集合 → 打 `v0.x-rcN`（GitHub pre-release，供实机验收）→ 验收通过打 `v0.x.0`；不通过回 main 修复后再发下一个 rc；
 - 发布前更新 README 的特性清单与 ROADMAP 的状态列。
