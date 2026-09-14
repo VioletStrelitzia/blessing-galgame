@@ -8,7 +8,7 @@ const LOG_TAG := "StoryManager"
 @export var gal_world2d: GalWorld2d
 
 enum IterateMode {
-	INITIALIZATION,  ## 只执行指令，遇到第一个对话停下（不输出对话）
+	INITIALIZATION,  ## 只执行前置指令，遇到第一个对话转入 DEFAULT 并展示
 	DEFAULT,  ## 默认模式，执行碰到下一个对话停下（输出对话）
 	POST_COMMAND,  ## 后指令模式，执行碰到非后指令停下
 }
@@ -22,7 +22,6 @@ enum ManagerMode {
 
 var manager_mode: ManagerMode = ManagerMode.INTERACT
 var iterate_mode: IterateMode = IterateMode.INITIALIZATION
-var end := 2147483647
 var idx := 0
 var log_idx := 0
 
@@ -44,9 +43,13 @@ var cur_script: GalEventItemSequence
 # manager_mode 变化时发出的信号
 signal manager_mode_changed(new_mode: ManagerMode)
 
-# --- 异步执行控制 ---
-var _is_running := false
-var _pending_next := false
+# --- 推进控制 ---
+# 解释器主循环 run_script 是同步的（无 await）：
+# 执行到对白/选项/跳转即返回，推进由信号与定时器驱动（见 _arm_advance_trigger）
+var _waiting := false  ## 停在对白停止点（后指令已消费完），等待推进触发
+var _switching := false  ## next_story 转场进行中，屏蔽输入与推进
+var _option_waiting := false  ## 选项 UI 打开中
+var _replay_end := -1  ## 读档 SKIP 重放的终点索引，-1 表示不在重放
 
 # --- 指令处理函数注册表 ---
 var _instruction_handlers: Dictionary = {}
@@ -69,6 +72,7 @@ func _ready() -> void:
 	
 	dialogue_ui.forward.connect(on_forward)
 	dialogue_ui.fast_forward.connect(on_fast_forward)
+	dialogue_ui.dialogue_finished.connect(_on_dialogue_finished)
 	gal_ui.skip_button_pressed.connect(on_change_skip)
 	gal_ui.auto_button_pressed.connect(on_change_auto)
 	
@@ -101,10 +105,10 @@ func on_forward() -> void:
 		ManagerMode.STOP:
 			return  # STOP 模式下屏蔽一切外部输入
 		ManagerMode.INTERACT:
-			if not dialogue_ui.skip_typing():
-				run_script()
+			_advance()
 		_:
-			_set_interact_mode()
+			# AUTO/SKIP 中点击：回到 INTERACT 并跳完当前打字
+			_set_manager_mode(ManagerMode.INTERACT)
 			dialogue_ui.skip_typing()
 
 
@@ -113,59 +117,32 @@ func on_fast_forward() -> void:
 		ManagerMode.STOP:
 			return  # STOP 模式下屏蔽一切外部输入
 		ManagerMode.INTERACT:
-			if not dialogue_ui.skip_typing():
-				run_script()
-				dialogue_ui.skip_typing()
+			_advance()
+			dialogue_ui.skip_typing()  # 快进：推进后立即跳完新对白
 		_:
-			_set_interact_mode()
+			_set_manager_mode(ManagerMode.INTERACT)
 			dialogue_ui.skip_typing()
-
-
-func _set_interact_mode() -> void:
-	_set_manager_mode(ManagerMode.INTERACT)
-	_pending_next = false
-
-
-func _set_manager_mode(mode: ManagerMode) -> void:
-	if manager_mode == mode:
-		return
-	
-	manager_mode = mode
-	
-	# 同步 UI（STOP 模式禁用自动/跳过）
-	if gal_ui:
-		gal_ui.auto_button.button_pressed = (mode == ManagerMode.AUTO)
-		var disabled := (mode == ManagerMode.STOP)
-		gal_ui.skip_button.disabled = disabled
-		gal_ui.auto_button.disabled = disabled
-	
-	manager_mode_changed.emit(mode)
 
 
 func on_change_skip() -> void:
 	# STOP 模式下屏蔽一切外部输入
 	if manager_mode == ManagerMode.STOP:
 		return
-	match manager_mode:
-		ManagerMode.SKIP:
-			_set_manager_mode(ManagerMode.INTERACT)
-		_:
-			_set_manager_mode(ManagerMode.SKIP)
-	dialogue_ui.skip_typing()
-	run_script()
+	if manager_mode == ManagerMode.SKIP:
+		_set_manager_mode(ManagerMode.INTERACT)
+	else:
+		_set_manager_mode(ManagerMode.SKIP)
+		dialogue_ui.skip_typing()  # 跳完当前打字；finished 信号会驱动后指令与续跑
 
 
 func on_change_auto() -> void:
 	# STOP 模式下屏蔽一切外部输入
 	if manager_mode == ManagerMode.STOP:
 		return
-	match manager_mode:
-		ManagerMode.AUTO:
-			_set_manager_mode(ManagerMode.INTERACT)
-		_:
-			_set_manager_mode(ManagerMode.AUTO)
-			if not _is_running:
-				run_script()
+	if manager_mode == ManagerMode.AUTO:
+		_set_manager_mode(ManagerMode.INTERACT)
+	else:
+		_set_manager_mode(ManagerMode.AUTO)
 
 
 func load_script(script_name: String):
@@ -206,95 +183,132 @@ func _build_jump_table() -> void:
 					_jump_table[last[1]] = i
 
 
+## 推进一个回合：打字中则跳完（dialogue_finished 驱动后指令与续跑），否则执行到下一停止点
+func _advance() -> void:
+	if _switching:
+		return
+	if dialogue_ui.skip_typing():
+		return
+	run_script()
+
+
+## 同步执行剧本直到本回合停止点（对白/选项/跳转/末尾）。无 await：
+## 对白停止后的推进由 _arm_advance_trigger 按 manager_mode 布置
 func run_script(mode: IterateMode = IterateMode.DEFAULT) -> void:
-	if _is_running: return
-	_is_running = true
+	if cur_script == null:
+		return
+	iterate_mode = mode
+	_waiting = false
 	AudioManager.stop_voice()
 	for c in gal_world2d.characters:
 		c.skip_all()
-	iterate_mode = mode
 	while idx < cur_script.seq.size():
 		var cur_item := cur_script.seq[idx]
 		if log_idx != idx:
 			GalLogger.debug(LOG_TAG, "执行: %s" % cur_item)
 			log_idx = idx
-		match iterate_mode:
-			IterateMode.INITIALIZATION:
-				if await process_initialization(cur_item):
-					break
-			IterateMode.DEFAULT:
-				if await process_default(cur_item):
-					break
-			IterateMode.POST_COMMAND:
-				if await process_post_command(cur_item):
-					break
-	_is_running = false
+		if _step(cur_item):
+			break
+
+
+## 执行单个条目，返回 true 表示本回合停止（对白展示/外部接管/模式结束）
+func _step(item: GalEventItem) -> bool:
+	match iterate_mode:
+		IterateMode.INITIALIZATION:
+			if item is PrevInstruction:
+				idx += 1
+				return execute(item)
+			iterate_mode = IterateMode.DEFAULT
+			return false
+		IterateMode.DEFAULT:
+			if item is DialogueItem:
+				_show_dialogue(item)
+				idx += 1
+				iterate_mode = IterateMode.POST_COMMAND
+				return true  # 对白停止点：等打字完成
+			idx += 1
+			return execute(item)
+		IterateMode.POST_COMMAND:
+			if item is PostInstruction:
+				idx += 1
+				return execute(item)
+			iterate_mode = IterateMode.DEFAULT
+			return true
+	return false
+
+
+## 打字完成（自然结束或被跳过）：消费后指令，然后按模式安排下一次推进
+func _on_dialogue_finished() -> void:
+	while idx < cur_script.seq.size() and cur_script.seq[idx] is PostInstruction:
+		var item := cur_script.seq[idx]
+		if log_idx != idx:
+			GalLogger.debug(LOG_TAG, "执行: %s" % item)
+			log_idx = idx
+		idx += 1
+		if execute(item):
+			return  # 选项/跳转接管推进，不再布置触发器
+	iterate_mode = IterateMode.DEFAULT
+	_waiting = true
+
+	# 读档重放到达存档点：交还玩家（_waiting 已在上方设置，保证模式切换能重新布置触发器）
+	if _replay_end >= 0 and idx >= _replay_end:
+		_replay_end = -1
+		_set_manager_mode(ManagerMode.INTERACT)
+		return
+
+	_arm_advance_trigger()
+
+
+## 按当前模式布置推进触发器；INTERACT 等玩家输入，STOP 由外部接管
+func _arm_advance_trigger() -> void:
 	match manager_mode:
-		ManagerMode.INTERACT:
-			if _pending_next:
-				_pending_next = false
-				if not dialogue_ui.skip_typing():
-					run_script()
 		ManagerMode.AUTO:
-			await get_tree().create_timer(Global.auto_wait_time).timeout
-			run_script()
+			_schedule_advance(Global.auto_wait_time)
 		ManagerMode.SKIP:
-			if idx >= end:
-				end = 2147483647
-				_set_interact_mode()
-			else:
-				await get_tree().process_frame
-				run_script()
-		ManagerMode.STOP:
-			return
+			_schedule_advance(0.0)
 
 
-func process_initialization(item: GalEventItem) -> bool:
-	if item is PrevInstruction:
-		idx += 1
-		return await execute(item)
+## 预约一次推进；触发时若已切换模式或已被推进则丢弃（一次性定时器，随树暂停）
+func _schedule_advance(delay: float) -> void:
+	var armed_mode := manager_mode
+	get_tree().create_timer(delay, false).timeout.connect(func():
+		if _waiting and manager_mode == armed_mode:
+			_advance()
+	, CONNECT_ONE_SHOT)
+
+
+func _set_manager_mode(mode: ManagerMode) -> void:
+	if manager_mode == mode:
+		return
 	
-	iterate_mode = IterateMode.DEFAULT
-	return false
-
-
-func process_default(item: GalEventItem) -> bool:
-	if item is PrevInstruction:
-		idx += 1
-		return await execute(item)
-
-	if item is DialogueItem:
-		await show_dialogue(item)
-		idx += 1
-		iterate_mode = IterateMode.POST_COMMAND
-		return false
-
-	if item is Instruction: 
-		idx += 1
-		return await execute(item)
-
-	return false
-
-
-func process_post_command(item: GalEventItem) -> bool:
-	if item is PostInstruction:
-		idx += 1
-		return await execute(item)
+	manager_mode = mode
 	
-	iterate_mode = IterateMode.DEFAULT
-	return true
+	# 等待中切换模式：按新模式重新布置推进触发器（旧预约触发时会被守卫丢弃）
+	if _waiting:
+		_arm_advance_trigger()
+	
+	# 同步 UI（STOP 模式禁用自动/跳过）
+	if gal_ui:
+		gal_ui.auto_button.button_pressed = (mode == ManagerMode.AUTO)
+		var disabled := (mode == ManagerMode.STOP)
+		gal_ui.skip_button.disabled = disabled
+		gal_ui.auto_button.disabled = disabled
+	
+	manager_mode_changed.emit(mode)
 
 
 func execute(ins: Instruction) -> bool:
-	if _instruction_handlers.has(ins.head):
-		var handler = _instruction_handlers[ins.head]
-		if handler is Callable:
-			return await handler.call(ins)
+	var handler = _instruction_handlers.get(ins.head)
+	if handler is Callable:
+		return handler.call(ins)
 	return false
 
 
-func next_story(free: bool = false, run: bool = true) -> void:
-	_set_interact_mode()
+func next_story(free: bool = false) -> void:
+	_switching = true
+	_waiting = false
+	_option_waiting = false
+	_set_manager_mode(ManagerMode.INTERACT)
 	
 	if dialogue_ui.visible:
 		dialogue_ui.fade_out()
@@ -306,7 +320,7 @@ func next_story(free: bool = false, run: bool = true) -> void:
 	
 	# reset
 	idx = 0
-	current_option_end_idx = -1 # <--- 【新增】切换脚本时，必须强制重置选项状态
+	current_option_end_idx = -1 # 切换脚本时，必须强制重置选项状态
 	_execution_stack.clear() # 重置逻辑流控制状态
 	dialogue_ui.clear_display()
 	gal_world2d.set_background_texture(null)
@@ -323,8 +337,7 @@ func next_story(free: bool = false, run: bool = true) -> void:
 	run_script(IterateMode.INITIALIZATION)
 	
 	await SceneManager.transition("fade_in", 1)
-	if run:
-		run_script(IterateMode.DEFAULT)
+	_switching = false
 
 
 func _music_play(ins: Instruction) -> bool:
@@ -548,61 +561,45 @@ func _option_begin(ins: Instruction) -> bool:
 				# 这里不 +1，因为我们要跳到 OPTION_END 本身，让它去执行重置逻辑
 				break
 			
-			match item.head:
-				Instruction.Head.OPTION:
-					options_text.append(item.params[0])
-					options_indices.append(scan_idx + 1)
+			if item.head == Instruction.Head.OPTION:
+				options_text.append(item.params[0])
+				options_indices.append(scan_idx + 1)
 		scan_idx += 1
 	
 	# 没找到 OPTION_END 时给出提示
 	if current_option_end_idx == -1:
 		GalLogger.warn(LOG_TAG, "未找到 OPTION_END，选项逻辑可能出错")
 	
-	# 显示 UI
-	await dialogue_ui.fade_out().finished
-	SceneManager.mount({
-		"ui": {"选择UI": Global.scenes["选择UI"]}
-	})
-	option_ui.show_options(options_text)
+	# 对话框淡出完成后再弹出选项（信号串联，不挂起协程）
+	dialogue_ui.fade_out().finished.connect(func():
+		SceneManager.mount({
+			"ui": {"选择UI": Global.scenes["选择UI"]}
+		})
+		option_ui.show_options(options_text)
+	, CONNECT_ONE_SHOT)
 	_set_manager_mode(ManagerMode.INTERACT)
 	
-	# 等待玩家选择 / 取消
-	var current_option_waiter = Node.new()
-	add_child(current_option_waiter)
-	var result = {}
-	
-	option_ui.option_made.connect(func(index):
-		if not result.has("done"):
-			result["done"] = true
-			result["index"] = index
-			current_option_waiter.queue_free()
-	, CONNECT_ONE_SHOT)
-	
-	option_ui.canceled.connect(func():
-		if not result.has("done"):
-			result["done"] = true
-			result["canceled"] = true
-			current_option_waiter.queue_free()
-	, CONNECT_ONE_SHOT)
-	
-	await current_option_waiter.tree_exited
-	current_option_waiter = null
+	# 等待玩家选择 / 取消（取消来自读档等外部流程）
+	_option_waiting = true
+	option_ui.option_made.connect(_on_option_made.bind(options_indices), CONNECT_ONE_SHOT)
+	option_ui.canceled.connect(_on_option_canceled, CONNECT_ONE_SHOT)
+	return true  # 选项 UI 接管推进
 
-	# 打印当前模式（调试用）
-	GalLogger.debug(LOG_TAG, "当前模式: %s" % manager_mode)
-	
-	if result.get("canceled", false):
-		GalLogger.info(LOG_TAG, "选择被中断")
-		# 取消一般来自退出/读档，终止本轮脚本执行
-		return true
-	
-	var option_index: int = result.get("index", -1)
-	if option_index == -1:
-		return false
-	
+
+func _on_option_made(option_index: int, options_indices: Array[int]) -> void:
+	if not _option_waiting:
+		return
+	_option_waiting = false
 	# 跳转到选中的分支开始处
 	idx = options_indices[option_index]
-	return false
+	run_script()
+
+
+func _on_option_canceled() -> void:
+	if not _option_waiting:
+		return
+	_option_waiting = false
+	GalLogger.info(LOG_TAG, "选择被中断")
 
 
 func _option_end(_ins: Instruction = null) -> bool:
@@ -623,7 +620,7 @@ func _jump_script(ins: Instruction) -> bool:
 func _jump_main_menu(_ins: Instruction = null) -> bool:
 	# 无需参数
 	_set_manager_mode(ManagerMode.INTERACT)
-	current_option_end_idx = -1 # <--- 【新增】回到主菜单时清理状态
+	current_option_end_idx = -1 # 回到主菜单时清理状态
 	
 	if dialogue_ui.visible:
 		dialogue_ui.fade_out()
@@ -660,28 +657,9 @@ func _evaluate_condition(key: String, operator: String, value: float) -> bool:
 			return var_value == value
 
 
-func _find_end_if(start_idx: int) -> int:
-	# 查找与 start_idx 对应的 END_IF（支持嵌套）
-	var depth := 1
-	var scan_idx := start_idx + 1
-	
-	while scan_idx < cur_script.seq.size():
-		var item := cur_script.seq[scan_idx]
-		if item is Instruction:
-			match item.head:
-				Instruction.Head.IF:
-					depth += 1
-				Instruction.Head.END_IF:
-					depth -= 1
-					if depth == 0:
-						return scan_idx
-		scan_idx += 1
-	
-	return -1
-
-
 func _get_jump_target(current_idx: int) -> int:
 	return _jump_table.get(current_idx, current_idx + 1)
+
 
 func _if_condition(ins: Instruction) -> bool:
 	var key = ins.params[0]
@@ -696,6 +674,7 @@ func _if_condition(ins: Instruction) -> bool:
 	else:
 		idx = _get_jump_target(idx - 1) 
 		return false
+
 
 func _else_if_condition(ins: Instruction) -> bool:
 	if _execution_stack[-1] == true:
@@ -714,6 +693,7 @@ func _else_if_condition(ins: Instruction) -> bool:
 		idx = _get_jump_target(idx - 1)
 		return false
 
+
 func _else_condition(_ins) -> bool:
 	if _execution_stack[-1] == true:
 		_jump_to_end_of_structure()
@@ -722,9 +702,11 @@ func _else_condition(_ins) -> bool:
 	_execution_stack[-1] = true
 	return false
 
+
 func _end_if_condition(_ins) -> bool:
 	_execution_stack.pop_back()
 	return false
+
 
 func _jump_to_end_of_structure() -> void:
 	var scan = idx - 1
@@ -733,24 +715,12 @@ func _jump_to_end_of_structure() -> void:
 	idx = scan + 1
 
 
-func show_dialogue(dialogue_item: DialogueItem):
+func _show_dialogue(dialogue_item: DialogueItem) -> void:
 	if not dialogue_ui.visible:
 		dialogue_ui.fade_in()
 	dialogue_ui.show_dialogue(dialogue_item.character, dialogue_item.dialogue)
-	match manager_mode:
-		ManagerMode.SKIP:
-			dialogue_ui.skip_typing()
-		_:
-			await dialogue_ui.dialogue_finished
-
-
-func _get_last_dialogue_idx() -> int:
-	var ret := idx
-	while ret >= 0 and cur_script.seq[idx] is not DialogueItem:
-		ret -= 1
-	if ret >= 0:
-		return ret
-	return 0
+	if manager_mode == ManagerMode.SKIP:
+		dialogue_ui.skip_typing()
 
 
 func load_game(sg: SavedGame):
@@ -759,16 +729,17 @@ func load_game(sg: SavedGame):
 		return
 	
 	# 清理状态
-	current_option_end_idx = -1 
+	current_option_end_idx = -1
+	_option_waiting = false
 	_execution_stack = sg.execution_stack
 	
 	for c in gal_world2d.characters:
 		c.reset([], true)
 	Global.vars = sg.vars
 	next_script = sg.script_name
-	await next_story(false, false) # 注意：next_story 内部会重置为 -1，所以这里执行顺序很重要
+	await next_story(false)  # 注意：next_story 内部会重置选项状态，执行顺序很重要
 	
-	end = sg.idx
-	
+	# 以 SKIP 模式重放到存档点，重建背景/立绘/音乐等现场
+	_replay_end = sg.idx
 	_set_manager_mode(ManagerMode.SKIP)
-	run_script()
+	_advance()
