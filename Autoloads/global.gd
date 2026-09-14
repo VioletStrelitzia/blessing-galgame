@@ -2,14 +2,10 @@ extends Node
 const LOG_TAG := "Global"
 
 
-const _config_path: String = "config.json"
-
 ## 剧本变量
 var vars: Dictionary[String, float] = {}
 
 var main: Node
-
-var exe_dir = OS.get_executable_path().get_base_dir()
 
 var text_interval: float = 0.05
 var auto_wait_time: float = 0.5
@@ -65,13 +61,22 @@ var scenes: Dictionary = {
 
 
 func _ready() -> void:
-	var config_json = Utils.load_json(_config_path)
-
-	if not config_json.is_empty():
+	var config_loaded := false
+	for path in PathManager.config_read_paths():
+		var config_json = Utils.load_json(path)
+		if config_json.is_empty():
+			continue
 		Utils.merge_dicts(config, config_json)
+		config_loaded = true
+		GalLogger.debug(LOG_TAG, "加载配置层: " + path)
+
+	if config_loaded:
 		GalLogger.info(LOG_TAG, "配置文件加载成功")
-	
-	GalLogger.set_log_file(config["logger"]["file"])
+
+	var log_file: String = config["logger"]["file"]
+	if not log_file.is_empty():
+		log_file = PathManager.writable_root().path_join(log_file)
+	GalLogger.set_log_file(log_file)
 	GalLogger.set_log_level(config["logger"]["level"])
 
 	if not config.has("begin_script") or config["begin_script"] == "":
@@ -111,13 +116,14 @@ func save_config() -> void:
 	config["dialogue_ui"]["auto_wait_time"] = auto_wait_time
 	
 	var json_string = JSON.stringify(config, "\t")
-	
-	var file = FileAccess.open(_config_path, FileAccess.WRITE)
+
+	var path := PathManager.config_write_path()
+	var file = FileAccess.open(path, FileAccess.WRITE)
 	if FileAccess.get_open_error() == OK:
 		file.store_string(json_string)
-		GalLogger.info(LOG_TAG, "配置已保存: %s" % _config_path)
+		GalLogger.info(LOG_TAG, "配置已保存: %s" % path)
 	else:
-		GalLogger.error(LOG_TAG, "无法写入配置文件: %s" % _config_path)
+		GalLogger.error(LOG_TAG, "无法写入配置文件: %s" % path)
 
 
 func _notification(what: int) -> void:

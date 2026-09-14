@@ -35,6 +35,8 @@
 
 想写自己的剧本：在 `scripts/` 下新建 `.txt`，按 [GalSGrammar.md](GalSGrammar.md) 的语法编写，在 `index.json` 登记素材引用名，再把 `config.json` 的 `begin_script` 指向你的剧本名（如 `scripts/demo/scene1.txt` 对应 `demo_scene1`）。
 
+导出 Windows 构建：先运行一次编辑器生成 `GalSs/`，再 `godot --headless --path . --export-release "Windows Desktop"`，产物在 `build/`。存档/日志/配置的落点与降级规则见 [docs/路径策略设计.md](docs/路径策略设计.md)。
+
 ## 目录结构
 
 | 路径 | 说明 |
