@@ -57,7 +57,11 @@ static func _write(level: int, tag: String, msg: String) -> void:
 		Level.ERROR:
 			push_error(line)
 		_:
-			print_rich("[color=%s]%s[/color]" % [_LEVEL_COLORS[level], line])
+			# 控制台路径转义 BBCode（消息可能含剧本正文等带方括号的内容）
+			var console_line := "[%s] [%s] [%s] %s" % [
+				_timestamp(), _LEVEL_NAMES[level], tag, msg.replace("[", "[lb]")
+			]
+			print_rich("[color=%s]%s[/color]" % [_LEVEL_COLORS[level], console_line])
 
 	if _file:
 		_file.store_line(line)
@@ -65,8 +69,9 @@ static func _write(level: int, tag: String, msg: String) -> void:
 
 
 static func _timestamp() -> String:
-	var d := Time.get_datetime_dict_from_system()
-	var ms := Time.get_ticks_msec() % 1000
+	var unix := Time.get_unix_time_from_system()
+	var d := Time.get_datetime_dict_from_system()  # 本地墙钟（秒级）
+	var ms := int(fposmod(unix, 1.0) * 1000.0)     # 毫秒取自 unix 时间的小数部分
 	return "%04d-%02d-%02d %02d:%02d:%02d.%03d" % [
 		d.year, d.month, d.day, d.hour, d.minute, d.second, ms
 	]

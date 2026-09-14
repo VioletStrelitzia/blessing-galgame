@@ -1,5 +1,4 @@
 extends Node
-const LOG_TAG := "Message"
 
 
 signal toast_requested(text: String, type: String)
