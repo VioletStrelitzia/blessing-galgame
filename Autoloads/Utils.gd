@@ -10,7 +10,7 @@ static func open_file(
 ) -> FileAccess:
 	var file = FileAccess.open(path, flags)
 	if not file:
-		GalLogger.error(LOG_TAG, "无法打开文件：" + path)
+		GalLogger.error(LOG_TAG, "无法打开文件: " + path)
 	return file
 
 
@@ -24,7 +24,7 @@ static func open_dir(
 		if create:
 			make_dir_absolute(dir)
 		else:
-			GalLogger.error(LOG_TAG, "无法打开目录：" + path)
+			GalLogger.error(LOG_TAG, "无法打开目录: " + path)
 	return dir
 
 
@@ -40,7 +40,7 @@ static func load_json(path: String) -> Dictionary:
 	var parse_result = json.parse(json_text)
 	
 	if parse_result != OK:
-		GalLogger.error(LOG_TAG, "解析 JSON 失败：" + path +
+		GalLogger.error(LOG_TAG, "解析 JSON 失败: " + path +
 			"，code=" + str(parse_result) +
 			"，msg=" + json.get_error_message())
 		return {}
