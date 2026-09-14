@@ -18,7 +18,7 @@ boot_splash/bg_color=Color(0, 0, 0, 1)
 boot_splash/show_image=false
 boot_splash/fullsize=false
 boot_splash/use_filter=false
-config/icon="uid://b0cx15gmxcbnt"
+config/icon="res://Resources/image/blessing.svg"
 
 [autoload]
 
