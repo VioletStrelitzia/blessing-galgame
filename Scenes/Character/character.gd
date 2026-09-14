@@ -166,7 +166,7 @@ func skip_all() -> void:
 			AnimationType.WAIT:
 				pass
 			_:
-				GalLogger.error(LOG_TAG, "不支持的动画步类型：" + command)
+				GalLogger.error(LOG_TAG, "不支持的动画步类型: " + command)
 
 	# 全部处理完，重置并发信号
 	reset()
@@ -297,7 +297,7 @@ func _play_next() -> void:
 		AnimationType.HIDE_FADE: hide_fade(args[0])
 		AnimationType.MOVE_TO: move_to(args[0], args[1])
 		AnimationType.CHANGE_TEXTURE: change_texture(args[0])
-		_: GalLogger.error(LOG_TAG, "不支持的动画步类型：" + command)
+		_: GalLogger.error(LOG_TAG, "不支持的动画步类型: " + command)
 
 
 func _to_string() -> String:

@@ -393,7 +393,7 @@ func _set_background(ins: Instruction) -> bool:
 	if background_tex:
 		gal_world2d.background.texture = background_tex
 	else:
-		GalLogger.error(LOG_TAG, "加载背景失败：" + key)
+		GalLogger.error(LOG_TAG, "加载背景失败: " + key)
 	return false
 
 
