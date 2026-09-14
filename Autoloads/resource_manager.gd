@@ -43,6 +43,11 @@ func _ready():
 		_path_dict["script"][logical.get_basename()] = scripts_save_dir.path_join(logical)
 
 
+func _exit_tree() -> void:
+	_cache.clear()
+	_path_dict.clear()
+
+
 func load(res_type: String, res_key: String) -> Resource:
 	GalLogger.debug(LOG_TAG, "尝试加载资源: " + res_type + "/" + res_key)
 	

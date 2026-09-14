@@ -32,6 +32,14 @@ func _ready() -> void:
 	GalLogger.info(LOG_TAG, "场景管理器初始化完毕")
 
 
+func _exit_tree() -> void:
+	# 池中的场景已摘出场景树，退出时需手动释放
+	for manager in scene_managers.values():
+		for node in manager["pool"].values():
+			node.free()
+		manager["pool"].clear()
+
+
 func get_scene(type: String, where: String, key: String) -> Node:
 	if not scene_managers.has(type):
 		return null
