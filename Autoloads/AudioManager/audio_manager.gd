@@ -1,4 +1,6 @@
 extends Node
+const LOG_TAG := "AudioManager"
+
 
 enum Bus {
 	MASTER,
@@ -20,7 +22,7 @@ func _ready() -> void:
 	music_manager.set_bus(MUSIC_BUS_NAME)
 	sfx_manager.set_bus(SFX_BUS_NAME)
 	voice_manager.set_bus(VOICE_BUS_NAME)
-	GalLogger.info("加载完成")
+	GalLogger.info(LOG_TAG, "加载完成")
 
 
 func play_music(

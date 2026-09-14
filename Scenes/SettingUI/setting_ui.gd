@@ -1,4 +1,6 @@
 class_name SettingUI extends Control
+const LOG_TAG := "SettingUI"
+
 
 @export var master_bus_slider: HSlider
 @export var music_bus_slider: HSlider
@@ -39,11 +41,11 @@ func _on_voice_bus_slider_value_changed(value: float) -> void:
 
 func _on_text_interval_slider_value_changed(value: float) -> void:
 	Global.text_interval = value
-	GalLogger.infos("文本间隔更新为: ", value)
+	GalLogger.info(LOG_TAG, "文本间隔更新: %s" % value)
 
 func _on_auto_wait_time_slider_value_changed(value: float) -> void:
 	Global.auto_wait_time = value
-	GalLogger.infos("自动等待时间更新为: ", value)
+	GalLogger.info(LOG_TAG, "自动等待时间更新: %s" % value)
 
 
 func _on_exit_pressed() -> void:

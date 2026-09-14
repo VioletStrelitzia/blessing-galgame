@@ -1,4 +1,6 @@
 extends Control
+const LOG_TAG := "MainMenu"
+
 
 @export var bgm: AudioStream
 @export var background: Texture
@@ -14,7 +16,7 @@ func _ready() -> void:
 		"texture", Global.config["main_menu"]["background"])
 	AudioManager.play_music(bgm)
 	$VBoxContainer/Start.grab_focus()
-	GalLogger.info("主菜单准备完毕")
+	GalLogger.info(LOG_TAG, "主菜单准备完毕")
 
 
 func _enter_tree() -> void:

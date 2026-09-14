@@ -1,5 +1,7 @@
 class_name Character
 extends Node2D
+const LOG_TAG := "Character"
+
 
 @export var sprite2d: Sprite2D
 
@@ -87,7 +89,7 @@ func wait(duration: float) -> void:
 	current_animation = AnimationType.WAIT
 	
 	if duration < 0:
-		GalLogger.info("暂停，等待下一个 play 指令")
+		GalLogger.info(LOG_TAG, "暂停，等待下一个 play 指令")
 		return
 	
 	timer = Timer.new()
@@ -120,7 +122,7 @@ func skip_all() -> void:
 	if animation_list.is_empty():
 		return
 	
-	GalLogger.debug("跳过整个动画组，瞬间应用最终状态")
+	GalLogger.debug(LOG_TAG, "跳过整个动画组，瞬间应用最终状态")
 
 	# 停止当前动画
 	_stop_current_animation()
@@ -164,7 +166,7 @@ func skip_all() -> void:
 			AnimationType.WAIT:
 				pass
 			_:
-				GalLogger.error("不支持的动画步类型：" + command)
+				GalLogger.error(LOG_TAG, "不支持的动画步类型：" + command)
 
 	# 全部处理完，重置并发信号
 	reset()
@@ -188,7 +190,7 @@ func _apply_final_state_of_current_animation() -> void:
 
 ## 重置状态，可选清空纹理
 func reset(list: Array[Array] = [], clear_texture: bool = false) -> void:
-	GalLogger.debug("重置状态")
+	GalLogger.debug(LOG_TAG, "重置状态")
 	_stop_current_animation()
 	animation_list = list
 	idx = 0
@@ -244,7 +246,7 @@ func skip_animation() -> void:
 	if animation_list.is_empty():
 		return
 	
-	GalLogger.infos("跳过当前动画步：" + AnimationType.keys()[current_animation])
+	GalLogger.debug(LOG_TAG, "跳过动画步: %s" % AnimationType.keys()[current_animation])
 	
 	match current_animation:
 		AnimationType.WAIT:
@@ -268,7 +270,7 @@ func skip_animation() -> void:
 
 func _play_next() -> void:
 	if idx >= animation_list.size():
-		GalLogger.info("动画组播放完毕")
+		GalLogger.info(LOG_TAG, "动画组播放完毕")
 		reset()
 		sequence_finished.emit()
 		return
@@ -283,7 +285,7 @@ func _play_next() -> void:
 	var command = current_step[0]
 	var args: Array = current_step.slice(1)
 	
-	GalLogger.debug("播放动画步 " + str(idx) +
+	GalLogger.debug(LOG_TAG, "播放动画步 " + str(idx) +
 			"：" + AnimationType.keys()[command] + "，参数为：" + str(args))
 	
 	match command:
@@ -295,7 +297,7 @@ func _play_next() -> void:
 		AnimationType.HIDE_FADE: hide_fade(args[0])
 		AnimationType.MOVE_TO: move_to(args[0], args[1])
 		AnimationType.CHANGE_TEXTURE: change_texture(args[0])
-		_: GalLogger.error("不支持的动画步类型：" + command)
+		_: GalLogger.error(LOG_TAG, "不支持的动画步类型：" + command)
 
 
 func _to_string() -> String:

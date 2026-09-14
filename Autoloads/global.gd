@@ -1,4 +1,6 @@
 extends Node
+const LOG_TAG := "Global"
+
 
 const _config_path: String = "config.json"
 
@@ -67,13 +69,13 @@ func _ready() -> void:
 
 	if not config_json.is_empty():
 		Utils.merge_dicts(config, config_json)
-		GalLogger.info("配置文件加载成功")
+		GalLogger.info(LOG_TAG, "配置文件加载成功")
 	
 	GalLogger.set_log_file(config["logger"]["file"])
 	GalLogger.set_log_level(config["logger"]["level"])
 
 	if not config.has("begin_script") or config["begin_script"] == "":
-		GalLogger.error("未设置初始幕剧本")
+		GalLogger.error(LOG_TAG, "未设置初始幕剧本")
 	
 	# 应用配置中的设置
 	apply_loaded_settings()
@@ -95,7 +97,7 @@ func apply_loaded_settings() -> void:
 	text_interval = config["dialogue_ui"]["wait_time_per_char"]
 	auto_wait_time = config["dialogue_ui"]["auto_wait_time"]
 	
-	GalLogger.info("设置已应用")
+	GalLogger.info(LOG_TAG, "设置已应用")
 
 
 func save_config() -> void:
@@ -113,9 +115,9 @@ func save_config() -> void:
 	var file = FileAccess.open(_config_path, FileAccess.WRITE)
 	if FileAccess.get_open_error() == OK:
 		file.store_string(json_string)
-		GalLogger.info("配置已保存: %s" % _config_path)
+		GalLogger.info(LOG_TAG, "配置已保存: %s" % _config_path)
 	else:
-		GalLogger.error("无法写入配置文件: %s" % _config_path)
+		GalLogger.error(LOG_TAG, "无法写入配置文件: %s" % _config_path)
 
 
 func _notification(what: int) -> void:

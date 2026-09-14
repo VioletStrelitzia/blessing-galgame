@@ -1,4 +1,6 @@
 class_name Utils extends Node
+const LOG_TAG := "Utils"
+
 
 
 ## 打开文件，失败时返回 null 并记录日志
@@ -8,7 +10,7 @@ static func open_file(
 ) -> FileAccess:
 	var file = FileAccess.open(path, flags)
 	if not file:
-		GalLogger.error("无法打开文件：" + path)
+		GalLogger.error(LOG_TAG, "无法打开文件：" + path)
 	return file
 
 
@@ -22,7 +24,7 @@ static func open_dir(
 		if create:
 			make_dir_absolute(dir)
 		else:
-			GalLogger.error("无法打开目录：" + path)
+			GalLogger.error(LOG_TAG, "无法打开目录：" + path)
 	return dir
 
 
@@ -38,13 +40,13 @@ static func load_json(path: String) -> Dictionary:
 	var parse_result = json.parse(json_text)
 	
 	if parse_result != OK:
-		GalLogger.error("解析 JSON 失败：" + path +
+		GalLogger.error(LOG_TAG, "解析 JSON 失败：" + path +
 			"，code=" + str(parse_result) +
 			"，msg=" + json.get_error_message())
 		return {}
 	
 	if json.data is not Dictionary:
-		GalLogger.error("JSON 结构不是字典: " + path)
+		GalLogger.error(LOG_TAG, "JSON 结构不是字典: " + path)
 	
 	return json.data
 
@@ -108,7 +110,7 @@ static func make_dir_absolute(
 	path: String
 ) -> void:
 	if DirAccess.make_dir_absolute(path) != OK:
-		GalLogger.error("无法创建目录: " + path)
+		GalLogger.error(LOG_TAG, "无法创建目录: " + path)
 
 
 static func take_screenshot() -> Image:
@@ -119,5 +121,5 @@ static func take_screenshot() -> Image:
 		var image = viewport.get_texture().get_image()
 		return image
 	else:
-		GalLogger.errors("无法获取根 Viewport")
+		GalLogger.error(LOG_TAG, "无法获取根 Viewport")
 		return null

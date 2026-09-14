@@ -1,4 +1,6 @@
 extends Node
+const LOG_TAG := "ResourceManager"
+
 
 var json_path: String = Global.config["res_json"]
 
@@ -36,7 +38,7 @@ func _ready():
 
 
 func load(res_type: String, res_key: String) -> Resource:
-	GalLogger.info("尝试加载资源: " + res_type + "/" + res_key)
+	GalLogger.debug(LOG_TAG, "尝试加载资源: " + res_type + "/" + res_key)
 	
 	# 运行时缓存
 	if _cache.has(res_type) and _cache[res_type].has(res_key):
@@ -45,7 +47,7 @@ func load(res_type: String, res_key: String) -> Resource:
 	# 解析为内部路径
 	var internal_path = _resolve_path(res_type, res_key)
 	if internal_path.is_empty():
-		GalLogger.errors("无法解析资源路径: ", res_type, res_key)
+		GalLogger.error(LOG_TAG, "无法解析资源路径: %s/%s" % [res_type, res_key])
 		return null
 
 	var loaded_resource: Resource = null
@@ -54,21 +56,21 @@ func load(res_type: String, res_key: String) -> Resource:
 	if ResourceLoader.exists(internal_path):
 		loaded_resource = load(internal_path)
 		if loaded_resource:
-			GalLogger.info("从内部资源加载: " + internal_path)
+			GalLogger.debug(LOG_TAG, "从内部资源加载: " + internal_path)
 		else:
-			GalLogger.error("内部资源加载失败: " + internal_path)
+			GalLogger.error(LOG_TAG, "内部资源加载失败: " + internal_path)
 	else:
-		GalLogger.error("内部资源不存在: " + internal_path)
+		GalLogger.error(LOG_TAG, "内部资源不存在: " + internal_path)
 
 	# 缓存并返回
 	if loaded_resource:
 		if not _cache.has(res_type):
 			_cache[res_type] = {}
 		_cache[res_type][res_key] = loaded_resource
-		GalLogger.info("资源已加载并缓存: " + internal_path + " -> " + res_type + "-" + res_key)
+		GalLogger.debug(LOG_TAG, "资源已加载并缓存: " + internal_path + " -> " + res_type + "-" + res_key)
 		return loaded_resource
 	else:
-		GalLogger.error("未找到资源: " + res_type + "-" + res_key)
+		GalLogger.error(LOG_TAG, "未找到资源: " + res_type + "-" + res_key)
 		return null
 
 
@@ -96,34 +98,34 @@ func _resolve_path(res_type: String, res_key: String) -> String:
 		else:
 			return "res://".path_join(base_dir).path_join(res_key)
 
-	GalLogger.warn("映射表未找到 '" + res_type + "/" + res_key + "'，尝试直接当路径用")
+	GalLogger.warn(LOG_TAG, "映射表未找到 '" + res_type + "/" + res_key + "'，尝试直接当路径用")
 	return res_key
 
 
 func unload(res_type: String, res_key: String) -> void:
 	if _cache.has(res_type) and _cache[res_type].has(res_key):
 		_cache[res_type].erase(res_key)
-		GalLogger.info("资源已从缓存中卸载: " + res_type + "/" + res_key)
+		GalLogger.debug(LOG_TAG, "资源已从缓存中卸载: " + res_type + "/" + res_key)
 		if _cache[res_type].is_empty():
 			_cache.erase(res_type)
 
 
 func clear_all_cache() -> void:
 	_cache.clear()
-	GalLogger.info("所有资源缓存已清空")
+	GalLogger.debug(LOG_TAG, "所有资源缓存已清空")
 
 
 func _load_pck_mods():
 	var mods_dir_path = OS.get_executable_path().get_base_dir().path_join(Global.config["mod_dir"])
-	GalLogger.info("扫描模组目录: " + mods_dir_path)
+	GalLogger.info(LOG_TAG, "扫描模组目录: " + mods_dir_path)
 
 	if not DirAccess.dir_exists_absolute(mods_dir_path):
-		GalLogger.warn("模组目录不存在，跳过模组加载")
+		GalLogger.warn(LOG_TAG, "模组目录不存在，跳过模组加载")
 		return
 
 	var dir = DirAccess.open(mods_dir_path)
 	if not dir:
-		GalLogger.error("无法打开模组目录: " + mods_dir_path)
+		GalLogger.error(LOG_TAG, "无法打开模组目录: " + mods_dir_path)
 		return
 
 	# 扫描所有模组文件夹，读取 mod.json
@@ -140,7 +142,7 @@ func _load_pck_mods():
 				if mod_info:
 					mod_info_list.append(mod_info)
 			else:
-				GalLogger.warn("在模组文件夹 '" + mod_dir_name + "' 中未找到 mod.json，将跳过。")
+				GalLogger.warn(LOG_TAG, "在模组文件夹 '" + mod_dir_name + "' 中未找到 mod.json，将跳过。")
 		mod_dir_name = dir.get_next()
 	dir.list_dir_end()
 
@@ -148,14 +150,14 @@ func _load_pck_mods():
 	mod_info_list.sort_custom(func(a, b): return a.priority < b.priority)
 
 	# 依次加载 PCK
-	GalLogger.info("发现 " + str(mod_info_list.size()) + " 个模组，按优先级加载")
+	GalLogger.info(LOG_TAG, "发现 " + str(mod_info_list.size()) + " 个模组，按优先级加载")
 	for mod_info in mod_info_list:
 		var pck_path = mod_info.pck_path
-		GalLogger.info("加载模组: '" + mod_info.name + "' (priority=" + str(mod_info.priority) + ") -> " + pck_path)
+		GalLogger.info(LOG_TAG, "加载模组: '" + mod_info.name + "' (priority=" + str(mod_info.priority) + ") -> " + pck_path)
 		if ProjectSettings.load_resource_pack(pck_path):
-			GalLogger.info("模组加载成功")
+			GalLogger.info(LOG_TAG, "模组加载成功")
 		else:
-			GalLogger.error("模组加载失败: " + pck_path)
+			GalLogger.error(LOG_TAG, "模组加载失败: " + pck_path)
 
 
 func _parse_mod_metadata(mode_json_path: String, mod_folder_path: String) -> Dictionary:
@@ -163,14 +165,14 @@ func _parse_mod_metadata(mode_json_path: String, mod_folder_path: String) -> Dic
 	
 	# 必需字段
 	if not data.has("name") or not data.has("pck_file") or not data.has("priority"):
-		GalLogger.error("mod.json (" + mode_json_path + ") 缺少 name/pck_file/priority")
+		GalLogger.error(LOG_TAG, "mod.json (" + mode_json_path + ") 缺少 name/pck_file/priority")
 		return {}
 
 	var pck_file_name = data.get("pck_file")
 	var pck_path = mod_folder_path.path_join(pck_file_name)
 
 	if not FileAccess.file_exists(pck_path):
-		GalLogger.error("mod.json '" + data.get("name") + "' 指定的 PCK 不存在: " + pck_path)
+		GalLogger.error(LOG_TAG, "mod.json '" + data.get("name") + "' 指定的 PCK 不存在: " + pck_path)
 		return {}
 
 	return {
