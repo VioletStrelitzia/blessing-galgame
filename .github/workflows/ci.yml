@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.5.1
+          use-dotnet: false
+
+      - name: Import resources
+        run: godot --headless --path . --import
+
+      - name: Boot to main menu
+        run: godot --headless --path . --quit-after 120
+
+      - name: Smoke test
+        run: godot --headless --path . -s test/smoke_test.gd
