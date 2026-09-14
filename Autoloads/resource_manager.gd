@@ -2,7 +2,8 @@ extends Node
 const LOG_TAG := "ResourceManager"
 
 
-var json_path: String = Global.config["res_json"]
+var json_path: String = "res://".path_join(Global.config["res_json"])
+var scripts_save_dir: String = "res://".path_join(Global.config["scripts"]["save_dir"])
 
 var _path_dict: Dictionary = {
 	"audio": {},
@@ -24,17 +25,22 @@ func _ready():
 				not _path_dict[type][key].begins_with("res://"):
 				_path_dict[type][key] = "res://".path_join(_path_dict[type][key])
 	
-	if Global.config["scripts"]["check"]:
+	if OS.has_feature("editor") and Global.config["scripts"]["check"]:
 		var di := DialogueImporter.new()
+		di.read_dir = "res://".path_join(Global.config["scripts"]["read_dir"])
+		di.save_dir = scripts_save_dir
 		add_child(di)
 		remove_child(di)
 		di.queue_free()
-	
-	var list := Utils.get_file_list(Global.config["scripts"]["save_dir"])
+	elif Global.config["scripts"]["check"]:
+		GalLogger.info(LOG_TAG, "导出构建，跳过剧本编译")
+
+	var list := Utils.get_file_list(scripts_save_dir)
 	for file in list:
 		if file.begins_with("."):
 			continue
-		_path_dict["script"][file.get_basename()] = Global.config["scripts"]["save_dir"].path_join(file)
+		var logical := Utils.logical_name(file)
+		_path_dict["script"][logical.get_basename()] = scripts_save_dir.path_join(logical)
 
 
 func load(res_type: String, res_key: String) -> Resource:
@@ -87,7 +93,7 @@ func _resolve_path(res_type: String, res_key: String) -> String:
 	elif res_type == "texture":
 		base_dir = Global.config["image_dir"]
 	elif res_type == "script":
-		base_dir = Global.config["scripts"]["save_dir"]
+		base_dir = scripts_save_dir
 	
 	if not base_dir.is_empty():
 		if base_dir.begins_with("res://"):
@@ -116,7 +122,7 @@ func clear_all_cache() -> void:
 
 
 func _load_pck_mods():
-	var mods_dir_path = OS.get_executable_path().get_base_dir().path_join(Global.config["mod_dir"])
+	var mods_dir_path = PathManager.mods_dir(Global.config["mod_dir"])
 	GalLogger.info(LOG_TAG, "扫描模组目录: " + mods_dir_path)
 
 	if not DirAccess.dir_exists_absolute(mods_dir_path):
