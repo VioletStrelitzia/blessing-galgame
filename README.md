@@ -55,7 +55,8 @@
 
 - [GalSGrammar.md](GalSGrammar.md) —— 剧本语言规范（编剧向）
 - [ROADMAP.md](ROADMAP.md) —— 路线图与待实现能力
-- [docs/README.md](docs/README.md) —— 设计文档索引（架构、竞品分析、未来设计）
+- [CONTRIBUTING.md](CONTRIBUTING.md) —— 开发流程与规范（参与开发必读）
+- [docs/README.md](docs/README.md) —— 文档索引（规范、设计、分析）
 
 ## License
 
