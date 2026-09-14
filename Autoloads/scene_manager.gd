@@ -89,7 +89,7 @@ func pre_load(scenes_to_load: Dictionary) -> void:
 				continue
 			
 			var path = scenes_to_load[scene_type][scene_name]
-			GalLogger.info(LOG_TAG, "预加载: " + scene_name + " - " + path)
+			GalLogger.debug(LOG_TAG, "预加载: " + scene_name + " - " + path)
 			var packed_scene = load(path) as PackedScene
 			if packed_scene:
 				var node = packed_scene.instantiate()
@@ -161,10 +161,10 @@ func _mount_single_scene(scene_type: String, scene_name: String, path: String, m
 		# 从池中取出
 		node = pool_dict[scene_name]
 		pool_dict.erase(scene_name)
-		GalLogger.info(LOG_TAG, "从池中获取: " + scene_name)
+		GalLogger.debug(LOG_TAG, "从池中获取: " + scene_name)
 	else:
 		# 现场加载
-		GalLogger.info(LOG_TAG, "加载: " + scene_name + " - " + path)
+		GalLogger.debug(LOG_TAG, "加载: " + scene_name + " - " + path)
 		var packed_scene = load(path) as PackedScene
 		if not packed_scene:
 			GalLogger.error(LOG_TAG, "无法加载场景: " + path)
@@ -189,15 +189,15 @@ func _unmount_single_scene(
 		GalLogger.warn(LOG_TAG, "尝试卸载一个未挂载的场景: " + scene_name)
 		return
 
-	GalLogger.info(LOG_TAG, "卸载: " + scene_name)
+	GalLogger.debug(LOG_TAG, "卸载: " + scene_name)
 	var node = mounted_dict[scene_name]
 	mount_point.remove_child(node)
 
 	if free:
-		GalLogger.info(LOG_TAG, "释放: " + scene_name)
+		GalLogger.debug(LOG_TAG, "释放: " + scene_name)
 		node.queue_free()
 	else:
-		GalLogger.info(LOG_TAG, "加入缓存池: " + scene_name)
+		GalLogger.debug(LOG_TAG, "加入缓存池: " + scene_name)
 		manager.pool[scene_name] = node
 	
 	# 从已挂载字典中移除
@@ -227,6 +227,6 @@ func free_scenes(scenes_to_free: Dictionary):
 				# queue_free 确保安全释放
 				node.queue_free()
 				manager["pool"].erase(scene_name)
-				GalLogger.info(LOG_TAG, "已将场景 '" + scene_name + "' 加入释放队列")
+				GalLogger.debug(LOG_TAG, "已将场景 '" + scene_name + "' 加入释放队列")
 			else:
 				GalLogger.warn(LOG_TAG, "尝试释放一个不在池中的场景: " + scene_name)

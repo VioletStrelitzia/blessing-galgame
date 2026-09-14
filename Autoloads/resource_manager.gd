@@ -153,9 +153,9 @@ func _load_pck_mods():
 	GalLogger.info(LOG_TAG, "发现 " + str(mod_info_list.size()) + " 个模组，按优先级加载")
 	for mod_info in mod_info_list:
 		var pck_path = mod_info.pck_path
-		GalLogger.info(LOG_TAG, "加载模组: '" + mod_info.name + "' (priority=" + str(mod_info.priority) + ") -> " + pck_path)
+		GalLogger.debug(LOG_TAG, "加载模组: '" + mod_info.name + "' (priority=" + str(mod_info.priority) + ") -> " + pck_path)
 		if ProjectSettings.load_resource_pack(pck_path):
-			GalLogger.info(LOG_TAG, "模组加载成功")
+			GalLogger.debug(LOG_TAG, "模组加载成功")
 		else:
 			GalLogger.error(LOG_TAG, "模组加载失败: " + pck_path)
 
