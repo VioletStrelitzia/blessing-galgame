@@ -26,3 +26,6 @@ jobs:
 
       - name: Smoke test
         run: godot --headless --path . -s test/smoke_test.gd
+
+      - name: Script diagnostics test
+        run: godot --headless --path . -s test/diagnostics_test.gd
