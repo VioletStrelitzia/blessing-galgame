@@ -78,16 +78,21 @@ func load_save_list() -> void:
 func _load_save_file(file_path: String) -> SavedGame:
 	if not FileAccess.file_exists(file_path):
 		return null
-	
+
 	if not ResourceLoader.exists(file_path):
 		GalLogger.warn(LOG_TAG, "存档资源不存在: " + file_path)
 		return null
-	
+
 	var saved_game = load(file_path) as SavedGame
 	if not saved_game:
 		GalLogger.warn(LOG_TAG, "无法加载存档: " + file_path)
 		return null
-	
+
+	# 版本校验：v2 语法重构后旧档的 idx 语义失效，不迁移
+	if saved_game.version < SavedGame.CURRENT_VERSION:
+		GalLogger.warn(LOG_TAG, "存档版本不兼容（v%d，需要 v%d），已忽略: %s" % [saved_game.version, SavedGame.CURRENT_VERSION, file_path])
+		return null
+
 	return saved_game
 
 
@@ -197,11 +202,12 @@ func save_game(slot_index: int = -1, title: String = "") -> bool:
 	
 	# 填充 SavedGame
 	var saved_game = SavedGame.new()
-	
+
+	saved_game.version = SavedGame.CURRENT_VERSION
 	saved_game.vars = Global.vars
 	saved_game.script_name = StoryManager.cur_script_name
 	saved_game.idx = StoryManager.idx
-	saved_game.execution_stack = StoryManager._execution_stack
+	saved_game.rng_seed = Global.rng_seed
 	saved_game.timestamp = _format_timestamp(timestamp)
 	if title.is_empty():
 		saved_game.title = StoryManager.cur_script_name
@@ -376,3 +382,4 @@ func _on_load_pressed() -> void:
 			SceneManager.unmount({"ui": {"存档UI": Global.scenes["存档UI"]}}, false)
 		else:
 			GalLogger.warn(LOG_TAG, "载入存档失败")
+			MessageManager.show("存档版本不兼容或已损坏", "error")
