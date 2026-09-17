@@ -10,6 +10,7 @@
 - **资源键名索引**：`index.json` 维护「引用名 → 路径」映射，剧本只写引用名，素材替换不改剧本。
 - **模组 PCK 加载**：启动时扫描可执行文件旁 `mods/` 目录，按 `mod.json`（`name` / `pck_file` / `priority`）声明的优先级加载 Godot 资源包。
 - **剧本热编译**：启动时按 SHA256 哈希 + 编译器版本盐增量编译 `scripts/` 中的文本剧本到 `GalSs/`，只重编译有改动的文件。
+- **场景与转场指令**：`scene mount/unmount` 剧本直挂场景（淡入淡出 + 池复用），`trans in/out` 全屏转场可挂起剧情。
 - **音频系统**：Master/Music/SFX/Voice 四总线；BGM 双播放器交叉淡变（时长可由剧本控制）；SFX 播放器池。
 - **立绘动画序列**：`char <实例> setup/show/hide/move/texture/wait` 直挂实例、入队自动播放，跨实例连写天然并行，`wait:true` 可挂起剧情；底部中心锚点 + 归一化坐标，自动适配分辨率。
 - **场景池化**：`SceneManager` 以 pool/mounted 双结构管理 UI 与世界场景，常驻场景卸载不释放，切换零磁盘 I/O。

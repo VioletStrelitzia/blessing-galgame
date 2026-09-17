@@ -2,27 +2,15 @@
 
 本文把 `docs/未来开发设计.md` 中的设想整理为正式路线图，每条给出**目标、动机、现状、落地要点**。排序不代表严格优先级，但大体按「先补齐已承诺的能力，再扩展新能力」组织。
 
-## R0. 已注册待实现的指令
+## R0. 已注册待实现的指令 ✅ 已全部落地
 
 **目标**：让 `scene mount/unmount`、`trans in/out` 从「语法可用」变为「运行时可用」。
 
-**动机**：这些指令键已进入解析器、`Instruction.Head` 枚举和参数转换都已就绪，但 `StoryManager._instruction_handlers` 未注册对应处理函数——剧本写了会被**静默跳过**，是编剧最容易踩的坑。
+**落地结果（BGalS v2 + 语句完善）**：
 
-**进展（BGalS v2）**：`var` 系列（操作符语法 `var x += 1`，右值支持变量名）与 `wait` 已接入运行时；`voice event` 随语音事件机制整体废除（由文本内联锚点取代）；`char` 系列改为直挂实例的入队指令。
-
-**现状**：
-
-| 指令 | 解析器 | 参数转换 | 运行时 handler |
-| --- | --- | --- | --- |
-| `scene mount` | ✅ | ✅（type/name/path/time/anim） | ❌ |
-| `scene unmount` | ✅ | ✅（type/name/time/anim/free） | ❌ |
-| `trans in` / `trans out` | ✅ | ✅（time/anim/wait） | ❌ |
-
-**落地要点**：
-
-- `scene` 系列直接转发 `SceneManager`，不新增平行场景系统；为可被剧本挂载的场景建立命名规范或白名单，并区分常驻/临时场景的 `free` 策略。
-- `trans` 系列复用 `SceneManager.transition()`。
-- 每落地一条，同步更新 `GalSGrammar.md` 的指令表并把该行从本节移除（见 R1）。
+- `var` 系列（操作符语法，右值支持变量名）、`wait`、条件选项已随 v2 接入运行时；`voice event` 废除（内联锚点取代）。
+- `scene mount/unmount` 转发 `SceneManager`（time 淡入淡出、free 池语义）；`trans in/out` 复用 `SceneManager.transition()`，`wait:true` 挂起剧情直到转场完成（SKIP/重放短路）。
+- 执行语义测试套件 `test/executor_test.gd` 覆盖全部 handler 行为断言，入 CI。
 
 ## R1. 指令能力对照表治理
 

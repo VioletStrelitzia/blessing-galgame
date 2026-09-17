@@ -158,8 +158,11 @@ static func parse_script(lines: PackedStringArray, file_name: String, diags: Arr
 	var gal_event_item_sequence := GalEventItemSequence.new()
 	var seq: Array[GalEventItem] = gal_event_item_sequence.seq
 
-	# 块上下文栈：{type: "option"/"if", indent: int, has_else: bool}
-	var block_stack: Array[Dictionary] = []
+	# 块上下文栈：{type: "root"/"option"/"if", indent, has_else, dead, dead_reported}
+	# root 伪帧（indent=-1 永不回退关闭）统一顶层与块内的死代码跟踪
+	var block_stack: Array[Dictionary] = [
+		{"type": "root", "indent": -1, "has_else": false, "dead": false, "dead_reported": false}
+	]
 	var prev_indent := 0
 	var prev_block_head_kind := ""  # 上一行若为块头：""/"option"/"if"
 	var seen_dialogue := false
@@ -201,14 +204,17 @@ static func parse_script(lines: PackedStringArray, file_name: String, diags: Arr
 		# elif/else 与兄弟选项优先于同级回退（它们与块头同级），
 		# 但需先关闭比它们更深的块（内层 if/选项组）
 		if kind == LineKind.ELIF_HEAD or kind == LineKind.ELSE_HEAD:
-			while not block_stack.is_empty() and indent < block_stack.back()["indent"]:
+			while block_stack.size() > 1 and indent < block_stack.back()["indent"]:
 				_close_block(block_stack.pop_back(), seq)
-			if block_stack.is_empty() or block_stack.back()["type"] != "if" or indent != block_stack.back()["indent"]:
+			if block_stack.back()["type"] != "if" or indent != block_stack.back()["indent"]:
 				_diagnose_static(diags, file_name, line_no, "error", "孤立的 elif/else（无配对 if 或缩进不齐）")
 				continue
 			if block_stack.back()["has_else"]:
 				_diagnose_static(diags, file_name, line_no, "error", "else 之后不允许再接 elif/else")
 				continue
+			# 新分支是新路径：重置死代码跟踪
+			block_stack.back()["dead"] = false
+			block_stack.back()["dead_reported"] = false
 			_emit_condition_head(kind, stripped, seq, diags, file_name, line_no)
 			if kind == LineKind.ELSE_HEAD:
 				block_stack.back()["has_else"] = true
@@ -217,17 +223,21 @@ static func parse_script(lines: PackedStringArray, file_name: String, diags: Arr
 			continue
 
 		if kind == LineKind.OPTION_ITEM:
-			while not block_stack.is_empty() and indent < block_stack.back()["indent"]:
+			while block_stack.size() > 1 and indent < block_stack.back()["indent"]:
 				_close_block(block_stack.pop_back(), seq)
-		if kind == LineKind.OPTION_ITEM and not block_stack.is_empty() \
+		if kind == LineKind.OPTION_ITEM \
 			and block_stack.back()["type"] == "option" and indent == block_stack.back()["indent"]:
+			# 兄弟选项是新分支：重置死代码跟踪
+			block_stack.back()["dead"] = false
+			block_stack.back()["dead_reported"] = false
+			_check_dead(block_stack.back(), diags, file_name, line_no)
 			_emit_option(stripped, seq, diags, file_name, line_no)
 			prev_block_head_kind = "option"
 			prev_indent = indent
 			continue
 
-		# 缩进回退：关闭所有块缩进 >= 当前缩进的块
-		while not block_stack.is_empty() and indent <= block_stack.back()["indent"]:
+		# 缩进回退：关闭所有块缩进 >= 当前缩进的块（root 伪帧 indent=-1 永不关闭）
+		while block_stack.size() > 1 and indent <= block_stack.back()["indent"]:
 			_close_block(block_stack.pop_back(), seq)
 
 		# 缩进加深只能跟在块头后
@@ -242,29 +252,46 @@ static func parse_script(lines: PackedStringArray, file_name: String, diags: Arr
 					if b["type"] == "option":
 						_diagnose_static(diags, file_name, line_no, "error", "选项组不支持嵌套")
 						break
-				block_stack.append({"type": "option", "indent": indent, "has_else": false})
+				_check_dead(block_stack.back(), diags, file_name, line_no)
+				block_stack.append({"type": "option", "indent": indent, "has_else": false, "dead": false, "dead_reported": false})
 				_emit_option(stripped, seq, diags, file_name, line_no)
 				prev_block_head_kind = "option"
 			LineKind.IF_HEAD:
+				_check_dead(block_stack.back(), diags, file_name, line_no)
 				_emit_condition_head(kind, stripped, seq, diags, file_name, line_no)
-				block_stack.append({"type": "if", "indent": indent, "has_else": false})
+				block_stack.append({"type": "if", "indent": indent, "has_else": false, "dead": false, "dead_reported": false})
 				prev_block_head_kind = "if"
 			LineKind.DIALOGUE:
 				seen_dialogue = true
+				_check_dead(block_stack.back(), diags, file_name, line_no)
 				_emit_dialogue(stripped, seq, diags, file_name, line_no)
 				prev_block_head_kind = ""
 			LineKind.INSTRUCTION_POST, LineKind.INSTRUCTION_PREV, LineKind.INSTRUCTION_FREE:
 				if (kind == LineKind.INSTRUCTION_POST) and not seen_dialogue:
 					_diagnose_static(diags, file_name, line_no, "warning", "后指令 > 之前没有任何对话")
+				_check_dead(block_stack.back(), diags, file_name, line_no)
+				var before := seq.size()
 				_emit_instruction(stripped, kind, seq, diags, file_name, line_no)
+				# jump 之后同块内容不可达
+				if seq.size() > before:
+					var head: int = (seq[seq.size() - 1] as Instruction).head
+					if head == Instruction.Head.JUMP_SCRIPT or head == Instruction.Head.JUMP_MAIN_MENU:
+						block_stack.back()["dead"] = true
 				prev_block_head_kind = ""
 		prev_indent = indent
 
-	# 文件结束：关闭未闭合块（缩进回退到 0 以下）
-	while not block_stack.is_empty():
+	# 文件结束：关闭未闭合块（root 伪帧除外）
+	while block_stack.size() > 1:
 		_close_block(block_stack.pop_back(), seq)
 
 	return gal_event_item_sequence
+
+
+## jump 后死代码检查（每块只报一次）
+static func _check_dead(frame: Dictionary, diags: Array[Dictionary], file: String, line_no: int) -> void:
+	if frame["dead"] and not frame["dead_reported"]:
+		frame["dead_reported"] = true
+		_diagnose_static(diags, file, line_no, "warning", "jump 之后的内容不可达（跳转后本脚本已卸载）")
 
 
 enum LineKind {
@@ -312,6 +339,12 @@ static func _emit_instruction(text: String, kind: LineKind, seq: Array[GalEventI
 	var content := text
 	if kind == LineKind.INSTRUCTION_POST or kind == LineKind.INSTRUCTION_PREV:
 		content = text.substr(1).strip_edges()
+		# 结构语句不接受前/后指令前缀（它们不是指令，时机由块语义决定）
+		var head_word := content.split(" ", false, 1)[0]
+		if head_word in ["if", "elif", "else"] or content.begins_with("*"):
+			_diagnose_static(diags, file, line_no, "error",
+				"if/elif/else/选项是块结构语句，不接受前/后指令前缀（去掉行首的 < 或 >）")
+			return
 
 	var ins := parse_instruction_line(content, diags, file, line_no)
 	if ins == null:
@@ -427,7 +460,8 @@ static func _parse_kv(args: Array[String], known_keys: Array, diags: Array[Dicti
 	var kv: Dictionary = {}
 	for a in args:
 		var colon := a.find(":")
-		if colon > 0 and a.substr(0, colon).is_valid_identifier():
+		# res:// user:// 等路径不算键值对（冒号后跟 //）
+		if colon > 0 and a.substr(0, colon).is_valid_identifier() and not a.substr(colon + 1).begins_with("//"):
 			var k := a.substr(0, colon)
 			var v := a.substr(colon + 1)
 			if k in known_keys:
@@ -629,7 +663,8 @@ static func _strip_inline_comment(text: String) -> String:
 		var c := text[i]
 		if c == '"':
 			in_quote = !in_quote
-		elif not in_quote and c == "/" and i + 1 < text.length() and text[i + 1] == "/":
+		elif not in_quote and c == "/" and i + 1 < text.length() and text[i + 1] == "/" \
+			and (i == 0 or text[i - 1] != ":"):
 			return text.substr(0, i).strip_edges()
 		i += 1
 	return text
@@ -710,8 +745,9 @@ static func _split_cli_args(text: String) -> Array[String]:
 	while i < length:
 		var c := text[i]
 
-		# 行内注释
-		if not in_quote and c == "/" and i + 1 < length and text[i + 1] == "/":
+		# 行内注释（但 res:// user:// 等路径的 // 前是冒号，不截断）
+		if not in_quote and c == "/" and i + 1 < length and text[i + 1] == "/" \
+			and (i == 0 or text[i - 1] != ":"):
 			break
 
 		# 引号处理

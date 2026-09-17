@@ -4,10 +4,11 @@ class_name DialogueRenderer
 ## 锚点索引基准 = 渲染后显示文本的字符串索引（含 BBCode 标签原文），
 ## 与 DialogueUI 打字循环的原始串游标同口径。
 
-## render(raw) -> {"text": String, "anchors": Array[Dictionary]}
+## render(raw, vars) -> {"text": String, "anchors": Array[Dictionary]}
 ## anchors 元素：{"index": int, "ins": Instruction}
 ## 其中 head == WAIT 的锚点为打字机暂停（[pause 秒]），由 DialogueUI 内部消费。
-static func render(raw: String) -> Dictionary:
+## vars 由调用方传入（静态工具不依赖 autoload，-s 模式下 Global 标识符不可编译）。
+static func render(raw: String, vars: Dictionary) -> Dictionary:
 	var text := ""
 	var anchors: Array[Dictionary] = []
 	var i := 0
@@ -34,7 +35,7 @@ static func render(raw: String) -> Dictionary:
 			if close != -1:
 				var var_name := raw.substr(i + 1, close - i - 1).strip_edges()
 				if var_name.is_valid_identifier():
-					text += _format_var(var_name)
+					text += _format_var(var_name, vars)
 					i = close + 1
 					continue
 			# 非插值：原样保留
@@ -78,8 +79,8 @@ static func _parse_anchor(inner: String) -> Instruction:
 	return DialogueImporter.parse_instruction_line(inner)
 
 
-static func _format_var(var_name: String) -> String:
-	var value: float = Global.vars.get(var_name, 0.0)
+static func _format_var(var_name: String, vars: Dictionary) -> String:
+	var value: float = vars.get(var_name, 0.0)
 	# 整数值去掉小数部分（好感度 3 而非 3.0）
 	if value == floorf(value):
 		return str(int(value))
