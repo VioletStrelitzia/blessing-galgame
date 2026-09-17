@@ -13,7 +13,7 @@ var current_fade_tween: Tween
 var current_dialogue_content: String
 
 signal dialogue_finished
-signal forward(bool)
+signal forward
 signal fast_forward
 
 
