@@ -67,6 +67,34 @@ func _init() -> void:
 				found_texture = item.params.size() == 2 and item.params[1] == "demo_char_a"
 		_assert(found_texture, "scene2 CHAR_CHANGE_TEXTURE 参数应为 [1, demo_char_a]")
 
+	# --- demo_scene3 结构断言（scene/trans/wait/char wait:true） ---
+	var seq3 = ResourceLoader.load("res://GalSs/demo_scene3.tres")
+	if seq3 == null or seq3.seq.is_empty():
+		print("FAIL: demo_scene3 无法加载或为空")
+		_ok = false
+	else:
+		var has_mount := false
+		var has_unmount := false
+		var has_trans := false
+		var has_wait := false
+		var has_char_wait_true := false
+		for item in seq3.seq:
+			if item is Instruction:
+				match item.head:
+					Instruction.Head.SCENE_MOUNT:
+						has_mount = true
+					Instruction.Head.SCENE_UNMOUNT:
+						has_unmount = true
+					Instruction.Head.TRANSITION_OUT, Instruction.Head.TRANSITION_IN:
+						has_trans = true
+					Instruction.Head.WAIT:
+						has_wait = true
+					Instruction.Head.CHAR_SHOW_FADE, Instruction.Head.CHAR_MOVE_TO:
+						if item.params[-1] == true:
+							has_char_wait_true = true
+		_assert(has_mount and has_unmount and has_trans and has_wait and has_char_wait_true,
+			"scene3 应含 scene mount/unmount、trans、wait、char wait:true")
+
 	# 对应 story_manager._music_play 里 play_music(stream, pos, loop) 的调用方式
 	_type_check(true)
 

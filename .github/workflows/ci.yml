@@ -29,3 +29,6 @@ jobs:
 
       - name: Script diagnostics test
         run: godot --headless --path . -s test/diagnostics_test.gd
+
+      - name: Executor semantics test
+        run: godot --headless --path . -s test/executor_test.gd

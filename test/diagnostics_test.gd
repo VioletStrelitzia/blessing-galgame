@@ -58,6 +58,20 @@ func _init() -> void:
 	# 10. else 孤立的 if 配对缺失：endif 已废除，孤立的 else
 	ok = _expect_error(["else"], "孤立") and ok
 
+	# 11. </> 修饰结构语句 → 定向报错
+	ok = _expect_error(["< if a >= 1"], "块结构语句") and ok
+	ok = _expect_error(["> * 选项"], "块结构语句") and ok
+
+	# 12. jump 后死代码 → 警告（每块一次）
+	var dead_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray([
+		"jump demo_scene2", "引路人: 这句永远看不到", "再一句也看不到"]), "test", dead_diags)
+	var dead_warns := 0
+	for d in dead_diags:
+		if d["level"] == "warning" and (d["msg"] as String).contains("不可达"):
+			dead_warns += 1
+	ok = _assert(dead_warns == 1, "jump 后死代码应警告恰好一次，实际 %d" % dead_warns) and ok
+
 	print("DIAGNOSTICS_TEST_DONE ok=", ok)
 	quit(0 if ok else 1)
 
