@@ -4,14 +4,14 @@
 
 ## 特性
 
-- **BGalS 对话块 DSL**：行式剧本文本，`<` 前指令 / `>` 后指令以对话为中心组织演出；支持选项分支、`if/elif/else/endif` 条件分支、跨脚本跳转。完整规范见 [GalSGrammar.md](GalSGrammar.md)。
-- **流式状态机解释器**：剧本编译为事件序列后由 `StoryManager` 流式执行，`IterateMode`（初始化/默认/后指令）× `ManagerMode`（交互/自动/跳过/停止）两维正交状态机管理推进节奏。
-- **检查点 + 重放式存档**：存档只记录脚本名、执行索引、变量与条件执行栈（`SavedGame` .tres 资源）；读档时以 SKIP 模式重放到存档点，自动重建背景、立绘、音乐等现场。存档自带截图缩略图。
+- **BGalS 对话块 DSL**：行式剧本文本，`<` 前指令 / `>` 后指令 / 独立指令三时机以对话为中心组织演出；缩进块表达选项与条件分支，无收尾标记；支持 `{var}` 插值、文本内联锚点、条件选项、跨脚本跳转；编译期行号级诊断。完整规范见 [GalSGrammar.md](GalSGrammar.md)。
+- **流式状态机解释器**：剧本编译为事件序列后由 `StoryManager` 流式执行，`IterateMode`（默认/后指令）× `ManagerMode`（交互/自动/跳过/停止）两维正交状态机管理推进节奏。
+- **检查点 + 确定性重放式存档**：存档只记录脚本名、执行索引、变量与随机种子（`SavedGame` .tres 资源）；读档时复位种子、以 SKIP 模式重放到存档点，自动重建背景、立绘、音乐等现场且随机序列不漂移。存档自带截图缩略图与版本校验。
 - **资源键名索引**：`index.json` 维护「引用名 → 路径」映射，剧本只写引用名，素材替换不改剧本。
 - **模组 PCK 加载**：启动时扫描可执行文件旁 `mods/` 目录，按 `mod.json`（`name` / `pck_file` / `priority`）声明的优先级加载 Godot 资源包。
-- **剧本热编译**：启动时按 SHA256 哈希增量编译 `scripts/` 中的文本剧本到 `GalSs/`，只重编译有改动的文件。
-- **音频系统**：Master/Music/SFX/Voice 四总线；BGM 双播放器交叉淡变；SFX 播放器池；语音支持**时间点事件**（语音播到第 N 秒触发指令）。
-- **立绘动画序列**：`character` + `char setup/show/hide/move/wait/texture` 先收集后播放，底部中心锚点 + 归一化坐标，自动适配分辨率。
+- **剧本热编译**：启动时按 SHA256 哈希 + 编译器版本盐增量编译 `scripts/` 中的文本剧本到 `GalSs/`，只重编译有改动的文件。
+- **音频系统**：Master/Music/SFX/Voice 四总线；BGM 双播放器交叉淡变（时长可由剧本控制）；SFX 播放器池。
+- **立绘动画序列**：`char <实例> setup/show/hide/move/texture/wait` 直挂实例、入队自动播放，跨实例连写天然并行，`wait:true` 可挂起剧情；底部中心锚点 + 归一化坐标，自动适配分辨率。
 - **场景池化**：`SceneManager` 以 pool/mounted 双结构管理 UI 与世界场景，常驻场景卸载不释放，切换零磁盘 I/O。
 - **游戏内 UI**：打字机对话框（支持 BBCode）、自动/跳过模式、存档/读档界面、设置界面（四路音量、文字速度、自动等待）、Toast 消息、启动画面与淡入淡出转场。
 - **配置驱动**：`config.json` 控制起始幕、资源目录、主菜单素材、初始音量、角色实例上限、存档目录等。
@@ -27,10 +27,11 @@
 2. 打开 Godot 项目管理器，导入仓库根目录的 `project.godot`。
 3. 直接运行（F5）：启动画面 → 主菜单 → 点击「开始」进入演示剧本。
 4. 演示剧本位于 `scripts/demo/scene1.txt`、`scripts/demo/scene2.txt`；启动时自动编译为 `GalSs/demo_scene1.tres` 等资源（`config.json` 中 `scripts.check = true` 时按哈希增量更新）。
-5. 无头冒烟测试（校验剧本编译产物）：
+5. 无头测试（编译产物结构断言 + 编译期诊断断言）：
 
    ```bash
    godot --headless --path . -s test/smoke_test.gd
+   godot --headless --path . -s test/diagnostics_test.gd
    ```
 
 想写自己的剧本：在 `scripts/` 下新建 `.txt`，按 [GalSGrammar.md](GalSGrammar.md) 的语法编写，在 `index.json` 登记素材引用名，再把 `config.json` 的 `begin_script` 指向你的剧本名（如 `scripts/demo/scene1.txt` 对应 `demo_scene1`）。

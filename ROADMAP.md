@@ -4,23 +4,22 @@
 
 ## R0. 已注册待实现的指令
 
-**目标**：让 `var` 系列、`scene mount/unmount`、`trans in/out` 从「语法可用」变为「运行时可用」。
+**目标**：让 `scene mount/unmount`、`trans in/out` 从「语法可用」变为「运行时可用」。
 
-**动机**：这些指令键已进入解析器（`DialogueImporter.INSTRUCTION_MAP`）、`Instruction.Head` 枚举和参数转换都已就绪，但 `StoryManager._instruction_handlers` 未注册对应处理函数——剧本写了会被**静默跳过**，是编剧最容易踩的坑。
+**动机**：这些指令键已进入解析器、`Instruction.Head` 枚举和参数转换都已就绪，但 `StoryManager._instruction_handlers` 未注册对应处理函数——剧本写了会被**静默跳过**，是编剧最容易踩的坑。
+
+**进展（BGalS v2）**：`var` 系列（操作符语法 `var x += 1`，右值支持变量名）与 `wait` 已接入运行时；`voice event` 随语音事件机制整体废除（由文本内联锚点取代）；`char` 系列改为直挂实例的入队指令。
 
 **现状**：
 
 | 指令 | 解析器 | 参数转换 | 运行时 handler |
 | --- | --- | --- | --- |
-| `var set/add/sub/mul/div` | ✅ | ✅（key + float） | ❌ |
-| `var random` | ✅ | ✅（key + min + max） | ❌ |
-| `scene mount` | ✅ | ✅（type/name/path/duration/anim） | ❌ |
-| `scene unmount` | ✅ | ✅（type/name/duration/anim/free） | ❌ |
-| `trans in` / `trans out` | ✅ | ✅（duration/anim/wait） | ❌ |
+| `scene mount` | ✅ | ✅（type/name/path/time/anim） | ❌ |
+| `scene unmount` | ✅ | ✅（type/name/time/anim/free） | ❌ |
+| `trans in` / `trans out` | ✅ | ✅（time/anim/wait） | ❌ |
 
 **落地要点**：
 
-- `var` 系列 handler 统一读写 `Global.vars`，未定义变量按 `0.0` 处理，与条件分支的读取语义保持一致。
 - `scene` 系列直接转发 `SceneManager`，不新增平行场景系统；为可被剧本挂载的场景建立命名规范或白名单，并区分常驻/临时场景的 `free` 策略。
 - `trans` 系列复用 `SceneManager.transition()`。
 - 每落地一条，同步更新 `GalSGrammar.md` 的指令表并把该行从本节移除（见 R1）。
@@ -68,19 +67,14 @@
 
 ## R4. 变量系统
 
-**目标**：确立剧本变量的完整语义，并随 R0 的 `var` 指令落地生效。
+**目标**：确立剧本变量的完整语义，并随 `var` 指令落地生效。✅ **已落地（BGalS v2）**。
 
-**动机**：条件分支已经可用，但变量写入指令缺位，纯剧本场景下变量恒为 `0.0`；语义需在落地前敲定，避免事后返工。
+**落地结果**：
 
-**现状**：`Global.vars` 为 `Dictionary[String, float]`——**全浮点约定**；读取未定义变量按 `0.0`；变量表随存档保存并在读档时恢复。
-
-**落地要点**：
-
-- 维持全浮点约定，不引入多类型变量，保持条件比较与存档格式简单。
-- `var random` 需要明确**随机种子是否入档**的取舍：
-  - 种子入档：读档后的 SKIP 重放完全确定，与重放式存档的确定性假设一致，但实现更重。
-  - 种子不入档：实现简单，但读档重放经过随机点时可能与原游玩过程分叉，导致后续条件分支走向不同。
-  - 建议：默认种子入档并在 `load_game` 时复位；若未来允许「非确定性重放」，需在文档中显式声明该风险。
+- 维持全浮点约定（`Global.vars: Dictionary[String, float]`），未定义变量按 `0.0`。
+- 操作符语法：`var x = / += / -= / *= / /=`，右值支持数字或变量名；`var x = random <min> <max>`。
+- **随机种子入档**：`Global.rng`（RandomNumberGenerator）的种随 `SavedGame.rng_seed` 保存；`load_game` 在读档重放前复位种子并清空 vars 从空累积——确定性重放使随机序列重现、条件路由一致，重放结束后 vars 与 rng 状态自然等于存档时刻，并以快照覆盖兜底。
+- 文本插值 `{var}` 与条件选项（`* 文本 if:条件`）同步落地。
 
 ## R5. 存档版本迁移策略
 
@@ -147,7 +141,9 @@
 
 **动机**：当前实现能跑通日常用法，但条件分支的「跳转表 + 执行栈」协议脆弱，执行模型存在多处隐式契约。以下缺陷均已对照代码核验（2026-09-09），**不是猜测**。
 
-**进展（2026-09-14）**：执行机制已重构为「同步主循环 + 信号/定时器驱动」——`run_script` 不再挂起，CPS 续跑、`_is_running`/`_pending_next` 防重入锁、SKIP 魔数哨兵（`end = 2147483647`）均已消除；AUTO/SKIP 推进定时器随树暂停（顺带修复暂停菜单中自动播放仍推进的漏洞）。下列已核验缺陷 1–3（条件分支跳转表/执行栈）与 `idx - 1` 回指契约**仍然存在**，条件结构导入期校验与 `execution_stack` 出档待后续落地。
+**进展（2026-09-14）**：执行机制已重构为「同步主循环 + 信号/定时器驱动」——`run_script` 不再挂起，CPS 续跑、`_is_running`/`_pending_next` 防重入锁、SKIP 魔数哨兵（`end = 2147483647`）均已消除；AUTO/SKIP 推进定时器随树暂停（顺带修复暂停菜单中自动播放仍推进的漏洞）。
+
+**进展（BGalS v2）**：缺陷 1 已修复（`_jump_to_end_of_structure` 落点改为 END_IF 本身，弹栈正常执行）；缺陷 2 由编译期配对校验消除（v2 缩进块语法下孤立 elif/else 在导入期即报错）；缺陷 3 已关闭（`execution_stack` 字段从 `SavedGame` 移除，读档不再恢复，重放重建）。剩余的结构性改进（跳转表导入期编译、状态机显式化、R2 合流）待后续。
 
 **已核验缺陷**：
 

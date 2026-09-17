@@ -8,7 +8,6 @@ const LOG_TAG := "StoryManager"
 @export var gal_world2d: GalWorld2d
 
 enum IterateMode {
-	INITIALIZATION,  ## 只执行前置指令，遇到第一个对话转入 DEFAULT 并展示
 	DEFAULT,  ## 默认模式，执行碰到下一个对话停下（输出对话）
 	POST_COMMAND,  ## 后指令模式，执行碰到非后指令停下
 }
@@ -21,7 +20,7 @@ enum ManagerMode {
 }
 
 var manager_mode: ManagerMode = ManagerMode.INTERACT
-var iterate_mode: IterateMode = IterateMode.INITIALIZATION
+var iterate_mode: IterateMode = IterateMode.DEFAULT
 var idx := 0
 var log_idx := 0
 
@@ -45,11 +44,14 @@ signal manager_mode_changed(new_mode: ManagerMode)
 
 # --- 推进控制 ---
 # 解释器主循环 run_script 是同步的（无 await）：
-# 执行到对白/选项/跳转即返回，推进由信号与定时器驱动（见 _arm_advance_trigger）
+# 执行到对白/选项/跳转/等待即返回，推进由信号与定时器驱动（见 _arm_advance_trigger）
 var _waiting := false  ## 停在对白停止点（后指令已消费完），等待推进触发
 var _switching := false  ## next_story 转场进行中，屏蔽输入与推进
 var _option_waiting := false  ## 选项 UI 打开中
+var _char_waiting := false  ## char wait:true 挂起中（等 sequence_finished）
+var _wait_waiting := false  ## wait 指令挂起中（等定时器）
 var _replay_end := -1  ## 读档 SKIP 重放的终点索引，-1 表示不在重放
+var _replay_vars_snapshot: Dictionary = {}  ## 重放结束后兜底覆盖的 vars 快照
 
 # --- 指令处理函数注册表 ---
 var _instruction_handlers: Dictionary = {}
@@ -85,11 +87,20 @@ func _ready() -> void:
 		Instruction.Head.VOICE_PLAY: 		_voice_play,
 		Instruction.Head.SFX_PLAY: 			_sfx_play,
 		Instruction.Head.SET_BACKGROUND: 	_set_background,
-		Instruction.Head.VOICE_EVENT: 		_voice_event,
-		Instruction.Head.CHARACTER: 		_char_begin,
-		Instruction.Head.CHAR_PLAY: 		_char_play,
+		Instruction.Head.CHAR_SETUP: 		_char_setup,
+		Instruction.Head.CHAR_SHOW_FADE: 	_char_show_fade,
+		Instruction.Head.CHAR_HIDE_FADE: 	_char_hide_fade,
+		Instruction.Head.CHAR_MOVE_TO: 		_char_move_to,
+		Instruction.Head.CHAR_WAIT: 		_char_wait,
+		Instruction.Head.CHAR_CHANGE_TEXTURE: _char_change_texture,
 		Instruction.Head.OPTION: 			_option_begin,
 		Instruction.Head.OPTION_END: 		_option_end,
+		Instruction.Head.VAR_SET: 			_var_set,
+		Instruction.Head.VAR_ADD: 			_var_add,
+		Instruction.Head.VAR_SUB: 			_var_sub,
+		Instruction.Head.VAR_MUL: 			_var_mul,
+		Instruction.Head.VAR_DIV: 			_var_div,
+		Instruction.Head.VAR_RANDOM: 		_var_random,
 		Instruction.Head.SET_BEGIN_SCRIPT: 	_set_begin_script,
 		Instruction.Head.JUMP_SCRIPT:	 	_jump_script,
 		Instruction.Head.JUMP_MAIN_MENU: 	_jump_main_menu,
@@ -97,7 +108,10 @@ func _ready() -> void:
 		Instruction.Head.ELSE_IF: 			_else_if_condition,
 		Instruction.Head.ELSE: 				_else_condition,
 		Instruction.Head.END_IF: 			_end_if_condition,
+		Instruction.Head.WAIT: 				_wait,
 	}
+
+	dialogue_ui.anchor_triggered.connect(func(ins: Instruction): execute(ins))
 
 
 func on_forward() -> void:
@@ -192,13 +206,16 @@ func _advance() -> void:
 	run_script()
 
 
-## 同步执行剧本直到本回合停止点（对白/选项/跳转/末尾）。无 await：
+## 同步执行剧本直到本回合停止点（对白/选项/跳转/等待）。无 await：
 ## 对白停止后的推进由 _arm_advance_trigger 按 manager_mode 布置
 func run_script(mode: IterateMode = IterateMode.DEFAULT) -> void:
 	if cur_script == null:
 		return
 	iterate_mode = mode
+	# 挂起守卫统一复位：本次推进后由新遇到的指令重新置位
 	_waiting = false
+	_char_waiting = false
+	_wait_waiting = false
 	AudioManager.stop_voice()
 	for c in gal_world2d.characters:
 		c.skip_all()
@@ -211,15 +228,14 @@ func run_script(mode: IterateMode = IterateMode.DEFAULT) -> void:
 			break
 
 
+## 独立指令判定（排除式：is 是子类型判定，直接 is Instruction 会吞掉子类）
+func _is_independent(item: GalEventItem) -> bool:
+	return item is Instruction and item is not PrevInstruction and item is not PostInstruction
+
+
 ## 执行单个条目，返回 true 表示本回合停止（对白展示/外部接管/模式结束）
 func _step(item: GalEventItem) -> bool:
 	match iterate_mode:
-		IterateMode.INITIALIZATION:
-			if item is PrevInstruction:
-				idx += 1
-				return execute(item)
-			iterate_mode = IterateMode.DEFAULT
-			return false
 		IterateMode.DEFAULT:
 			if item is DialogueItem:
 				_show_dialogue(item)
@@ -229,7 +245,8 @@ func _step(item: GalEventItem) -> bool:
 			idx += 1
 			return execute(item)
 		IterateMode.POST_COMMAND:
-			if item is PostInstruction:
+			# 打字完成窗口：消费后指令与独立指令，遇前指令或对话停
+			if item is PostInstruction or _is_independent(item):
 				idx += 1
 				return execute(item)
 			iterate_mode = IterateMode.DEFAULT
@@ -237,22 +254,28 @@ func _step(item: GalEventItem) -> bool:
 	return false
 
 
-## 打字完成（自然结束或被跳过）：消费后指令，然后按模式安排下一次推进
+## 打字完成（自然结束或被跳过）：消费后指令与独立指令，然后按模式安排下一次推进
 func _on_dialogue_finished() -> void:
-	while idx < cur_script.seq.size() and cur_script.seq[idx] is PostInstruction:
+	while idx < cur_script.seq.size():
 		var item := cur_script.seq[idx]
+		if not (item is PostInstruction or _is_independent(item)):
+			break
 		if log_idx != idx:
 			GalLogger.debug(LOG_TAG, "执行: %s" % item)
 			log_idx = idx
 		idx += 1
 		if execute(item):
-			return  # 选项/跳转接管推进，不再布置触发器
+			return  # 选项/跳转/等待接管推进，不再布置触发器
 	iterate_mode = IterateMode.DEFAULT
 	_waiting = true
 
 	# 读档重放到达存档点：交还玩家（_waiting 已在上方设置，保证模式切换能重新布置触发器）
 	if _replay_end >= 0 and idx >= _replay_end:
 		_replay_end = -1
+		# 确定性重放结束后以快照兜底覆盖（一致时无效果，分叉时保 vars 正确）
+		if not _replay_vars_snapshot.is_empty():
+			Global.vars = _replay_vars_snapshot.duplicate()
+			_replay_vars_snapshot = {}
 		_set_manager_mode(ManagerMode.INTERACT)
 		return
 
@@ -309,7 +332,11 @@ func next_story(free: bool = false) -> void:
 	_waiting = false
 	_option_waiting = false
 	_set_manager_mode(ManagerMode.INTERACT)
-	
+
+	# 新局新种子（load_game 路径会在转场后复位为存档种子）
+	Global.rng.randomize()
+	Global.rng_seed = Global.rng.seed
+
 	if dialogue_ui.visible:
 		dialogue_ui.fade_out()
 	AudioManager.stop_music()
@@ -317,14 +344,16 @@ func next_story(free: bool = false) -> void:
 	await SceneManager.transition("fade_out", 1)
 	SceneManager.umount_all(["ui", "world2d"], free)
 	ResourceManager.clear_all_cache()
-	
+
 	# reset
 	idx = 0
 	current_option_end_idx = -1 # 切换脚本时，必须强制重置选项状态
 	_execution_stack.clear() # 重置逻辑流控制状态
 	dialogue_ui.clear_display()
 	gal_world2d.set_background_texture(null)
-	
+	for c in gal_world2d.characters:
+		c.reset([], true)  # 跳幕清理角色现场（v1 遗漏，读档路径原先是自行重置）
+
 	SceneManager.mount({
 		"ui": {
 			"对话UI": Global.scenes["对话UI"],
@@ -332,23 +361,24 @@ func next_story(free: bool = false) -> void:
 		},
 		"world2d": {"Gal2D": Global.scenes["Gal2D"]}
 	})
-	
+
 	load_script(next_script)
-	run_script(IterateMode.INITIALIZATION)
-	
+	run_script()
+
 	await SceneManager.transition("fade_in", 1)
 	_switching = false
 
 
 func _music_play(ins: Instruction) -> bool:
-	# 解包参数: [path: String, vol: float, loop: bool]
+	# 解包参数: [path: String, from: float, loop: bool, fade: float]
 	var key: String = ins.params[0] as String
 	var from_position: float = ins.params[1] as float
 	var loop: bool = ins.params[2] as bool
-	
+	var fade: float = ins.params[3] as float
+
 	var audio_stream = ResourceManager.load("audio", key)
 	if audio_stream:
-		AudioManager.play_music(audio_stream, from_position, 1.0, 1.0, loop)
+		AudioManager.play_music(audio_stream, from_position, fade, fade, loop)
 	else:
 		GalLogger.error(LOG_TAG, "加载 BGM \"" + key + "\"失败")
 	return false
@@ -366,9 +396,12 @@ func _music_resume(_ins: Instruction = null) -> bool:
 	return false
 
 
-func _music_stop(_ins: Instruction = null) -> bool:
-	# 无需参数
-	AudioManager.stop_music()
+func _music_stop(ins: Instruction = null) -> bool:
+	# 参数: [fade: float]
+	var fade := 1.0
+	if ins != null:
+		fade = ins.params[0] as float
+	AudioManager.stop_music(fade)
 	return false
 
 
@@ -399,128 +432,164 @@ func _sfx_play(ins: Instruction) -> bool:
 
 
 func _set_background(ins: Instruction) -> bool:
-	# 解包参数: [path: String]
+	# 解包参数: [path: String, time: float]
 	var key: String = ins.params[0] as String
-	
+	var time: float = ins.params[1] as float
+
 	var background_tex = ResourceManager.load("texture", key)
 	if background_tex:
-		gal_world2d.background.texture = background_tex
+		if time > 0.0:
+			gal_world2d.transition_background(background_tex, time)
+		else:
+			gal_world2d.set_background_texture(background_tex)
 	else:
 		GalLogger.error(LOG_TAG, "加载背景失败: " + key)
 	return false
 
 
-func _voice_event(ins: Instruction) -> bool:
-	# 解包参数: [time: float]
-	var delay: float = ins.params[0] as float
-	
-	var next_item := cur_script.seq[idx]
-	if next_item is not Instruction:
-		GalLogger.error(LOG_TAG, "语音嵌入指令后未跟随一个指令")
-	idx += 1
-	AudioManager.voice_manager.add_event(delay, execute.bind(next_item))
+# --- 角色动画（直挂实例：入队 + 空闲自动播放；wait:true 挂起剧情） ---
+
+func _char_at(char_idx: int) -> Character:
+	if char_idx < 0 or char_idx >= gal_world2d.characters.size():
+		GalLogger.error(LOG_TAG, "角色实例索引越界: %d（上限 %d）" % [char_idx, gal_world2d.characters.size()])
+		return null
+	return gal_world2d.characters[char_idx]
+
+
+## 入队并自动播放；wait:true 时挂起剧情直到该实例动画序列完成
+func _char_enqueue(c: Character, step: Array, wait: bool) -> bool:
+	if c == null:
+		return false
+	c.animation_list.append(step)
+	c.play()
+	# SKIP/重放中不真实等待（与 skip_all/skip_typing 同哲学）
+	if wait and manager_mode != ManagerMode.SKIP and _replay_end < 0:
+		_char_waiting = true
+		c.sequence_finished.connect(_on_char_sequence_finished, CONNECT_ONE_SHOT)
+		return true
 	return false
 
 
-func _char_begin(ins: Instruction) -> bool:
-	# 解包参数: [char_index: int]
-	var char_idx: int = ins.params[0] as int
-	
-	var char_animation_list := gal_world2d.characters[char_idx].animation_list
-	while true:
-		var item := cur_script.seq[idx]
-		if item is Instruction:
-			match item.head:
-				Instruction.Head.CHAR_SETUP:
-					_char_setup_internal(char_animation_list, item)
-				Instruction.Head.CHAR_SHOW_FADE:
-					_char_show_fade_internal(char_animation_list, item)
-				Instruction.Head.CHAR_HIDE_FADE:
-					_char_hide_fade_internal(char_animation_list, item)
-				Instruction.Head.CHAR_MOVE_TO:
-					_char_move_to_internal(char_animation_list, item)
-				Instruction.Head.CHAR_WAIT:
-					_char_wait_internal(char_animation_list, item)
-				Instruction.Head.CHAR_CHANGE_TEXTURE:
-					_char_change_texture_internal(char_animation_list, item)
-				_:
-					break
-		idx += 1
-	return false
+func _on_char_sequence_finished() -> void:
+	if not _char_waiting:
+		return
+	_char_waiting = false
+	run_script()
 
 
-func _char_setup_internal(char_animation_list:Array[Array], ins: Instruction) -> void:
-	# 解包参数: [path: String, x: float, y: float]
-	var tex: String = ins.params[0] as String
-	var x: float = ins.params[1] as float
-	var y: float = ins.params[2] as float
-	
-	char_animation_list.append([
-		Character.AnimationType.SETUP,
-		ResourceManager.load("texture", tex),
-		Vector2(x, y)
-	])
+func _char_setup(ins: Instruction) -> bool:
+	# 参数: [char_index: int, path: String, x: float, y: float]
+	var c := _char_at(ins.params[0] as int)
+	if c == null:
+		return false
+	var tex = ResourceManager.load("texture", ins.params[1] as String)
+	if tex == null:
+		GalLogger.error(LOG_TAG, "加载立绘失败: " + (ins.params[1] as String))
+		return false
+	return _char_enqueue(c, [
+		Character.AnimationType.SETUP, tex, Vector2(ins.params[2] as float, ins.params[3] as float)
+	], false)
 
 
-func _char_show_fade_internal(char_animation_list:Array[Array], ins: Instruction) -> void:
-	# 解包参数: [duration: float]
-	var duration: float = ins.params[0] as float
-	
-	char_animation_list.append([
-		Character.AnimationType.SHOW_FADE,
-		duration
-	])
+func _char_show_fade(ins: Instruction) -> bool:
+	# 参数: [char_index: int, duration: float, wait: bool]
+	var c := _char_at(ins.params[0] as int)
+	return _char_enqueue(c, [Character.AnimationType.SHOW_FADE, ins.params[1] as float], ins.params[2] as bool)
 
 
-func _char_hide_fade_internal(char_animation_list:Array[Array], ins: Instruction) -> void:
-	# 解包参数: [duration: float]
-	var duration: float = ins.params[0] as float
-	
-	char_animation_list.append([
-		Character.AnimationType.HIDE_FADE,
-		duration
-	])
+func _char_hide_fade(ins: Instruction) -> bool:
+	var c := _char_at(ins.params[0] as int)
+	return _char_enqueue(c, [Character.AnimationType.HIDE_FADE, ins.params[1] as float], ins.params[2] as bool)
 
 
-func _char_move_to_internal(char_animation_list:Array[Array], ins: Instruction) -> void:
-	# 解包参数: [x: float, y: float, duration: float]
-	var x: float = ins.params[0] as float
-	var y: float = ins.params[1] as float
-	var duration: float = ins.params[2] as float
-	
-	char_animation_list.append([
+func _char_move_to(ins: Instruction) -> bool:
+	# 参数: [char_index: int, x: float, y: float, duration: float, wait: bool]
+	var c := _char_at(ins.params[0] as int)
+	return _char_enqueue(c, [
 		Character.AnimationType.MOVE_TO,
-		Vector2(x, y),
-		duration
-	])
+		Vector2(ins.params[1] as float, ins.params[2] as float),
+		ins.params[3] as float,
+	], ins.params[4] as bool)
 
 
-func _char_change_texture_internal(char_animation_list:Array[Array], ins: Instruction) -> void:
-	# 解包参数: [path: String]
-	var tex: String = ins.params[0] as String
-	
-	char_animation_list.append([
-		Character.AnimationType.CHANGE_TEXTURE,
-		ResourceManager.load("texture", tex)
-	])
+func _char_change_texture(ins: Instruction) -> bool:
+	# 参数: [char_index: int, path: String]
+	var c := _char_at(ins.params[0] as int)
+	if c == null:
+		return false
+	var tex = ResourceManager.load("texture", ins.params[1] as String)
+	if tex == null:
+		GalLogger.error(LOG_TAG, "加载立绘失败: " + (ins.params[1] as String))
+		return false
+	return _char_enqueue(c, [Character.AnimationType.CHANGE_TEXTURE, tex], false)
 
 
-func _char_wait_internal(char_animation_list:Array[Array], ins: Instruction) -> void:
-	# 解包参数: [duration: float]
-	var duration: float = ins.params[0] as float
-	
-	char_animation_list.append([
-		Character.AnimationType.WAIT,
-		duration
-	])
+func _char_wait(ins: Instruction) -> bool:
+	# 参数: [char_index: int, duration: float]（队列内等待，仅正秒）
+	var c := _char_at(ins.params[0] as int)
+	return _char_enqueue(c, [Character.AnimationType.WAIT, ins.params[1] as float], false)
 
 
-func _char_play(ins: Instruction) -> bool:
-	# 解包参数: [char_index: int]
-	var char_idx: int = ins.params[0] as int
-	
-	gal_world2d.characters[char_idx].play()
+# --- 变量 ---
+
+## 解析右值：数字字面量直接转换，否则按变量名查表（未定义按 0.0）
+func _resolve_value(s: String) -> float:
+	if s.is_valid_float():
+		return s.to_float()
+	return Global.vars.get(s, 0.0)
+
+
+func _var_set(ins: Instruction) -> bool:
+	Global.vars[ins.params[0]] = _resolve_value(ins.params[1])
 	return false
+
+
+func _var_add(ins: Instruction) -> bool:
+	var key: String = ins.params[0]
+	Global.vars[key] = Global.vars.get(key, 0.0) + _resolve_value(ins.params[1])
+	return false
+
+
+func _var_sub(ins: Instruction) -> bool:
+	var key: String = ins.params[0]
+	Global.vars[key] = Global.vars.get(key, 0.0) - _resolve_value(ins.params[1])
+	return false
+
+
+func _var_mul(ins: Instruction) -> bool:
+	var key: String = ins.params[0]
+	Global.vars[key] = Global.vars.get(key, 0.0) * _resolve_value(ins.params[1])
+	return false
+
+
+func _var_div(ins: Instruction) -> bool:
+	var key: String = ins.params[0]
+	var divisor := _resolve_value(ins.params[1])
+	if is_zero_approx(divisor):
+		GalLogger.warn(LOG_TAG, "var 除零，变量保持不变: " + key)
+		return false
+	Global.vars[key] = Global.vars.get(key, 0.0) / divisor
+	return false
+
+
+func _var_random(ins: Instruction) -> bool:
+	# 参数: [key: String, min: float, max: float]；用 Global.rng 保证重放确定性
+	Global.vars[ins.params[0]] = Global.rng.randf_range(ins.params[1] as float, ins.params[2] as float)
+	return false
+
+
+## 剧情显式等待；SKIP/重放中短路
+func _wait(ins: Instruction) -> bool:
+	var duration: float = ins.params[0] as float
+	if duration <= 0.0 or manager_mode == ManagerMode.SKIP or _replay_end >= 0:
+		return false
+	_wait_waiting = true
+	get_tree().create_timer(duration, false).timeout.connect(func():
+		if _wait_waiting:
+			_wait_waiting = false
+			run_script()
+	, CONNECT_ONE_SHOT)
+	return true
 
 
 func _set_begin_script(ins: Instruction) -> bool:
@@ -532,9 +601,7 @@ func _set_begin_script(ins: Instruction) -> bool:
 
 
 func _option_begin(ins: Instruction) -> bool:
-	# 参数: [text: String]
-	var option_text: String = ins.params[0] as String
-	
+	# 参数: [text: String, cond_key/op/value: String]
 	# 如果已经在本组选项中（current_option_end_idx 有效），并且还没走到 END，
 	# 说明当前是在其他分支里再次遇到 OPTION，直接跳到本组选项尾部
 	if current_option_end_idx != -1 and idx < current_option_end_idx:
@@ -543,33 +610,36 @@ func _option_begin(ins: Instruction) -> bool:
 		# run_script 下一次循环会处理 OPTION_END，从而重置状态并继续往下
 		return false
 
-	# 扫描本组选项
+	# 扫描本组选项（含当前 OPTION 自身；带条件的选项求值过滤）
 	var options_text: PackedStringArray = []
 	var options_indices: Array[int] = []
-	var scan_idx := idx 
-	
-	# 记录第一个选项
-	options_text.append(option_text)
-	options_indices.append(scan_idx)
-	
+	var scan_idx := idx - 1  # handler 调用前 _step 已 idx += 1，回指当前 OPTION
+
 	while scan_idx < cur_script.seq.size():
 		var item := cur_script.seq[scan_idx]
 		if item is Instruction:
 			if item.head == Instruction.Head.OPTION_END:
 				# 找到了当前这组选项的最终结束点，记录下来！
-				current_option_end_idx = scan_idx 
+				current_option_end_idx = scan_idx
 				# 这里不 +1，因为我们要跳到 OPTION_END 本身，让它去执行重置逻辑
 				break
-			
-			if item.head == Instruction.Head.OPTION:
+
+			if item.head == Instruction.Head.OPTION and _option_condition_passed(item):
 				options_text.append(item.params[0])
 				options_indices.append(scan_idx + 1)
 		scan_idx += 1
-	
+
 	# 没找到 OPTION_END 时给出提示
 	if current_option_end_idx == -1:
 		GalLogger.warn(LOG_TAG, "未找到 OPTION_END，选项逻辑可能出错")
-	
+
+	# 空选项组防护（条件过滤后无存活选项）：跳过整组，不弹 UI
+	if options_text.is_empty():
+		GalLogger.warn(LOG_TAG, "选项组条件过滤后为空，跳过整组")
+		if current_option_end_idx != -1:
+			idx = current_option_end_idx
+		return false
+
 	# 对话框淡出完成后再弹出选项（信号串联，不挂起协程）
 	dialogue_ui.fade_out().finished.connect(func():
 		SceneManager.mount({
@@ -578,12 +648,20 @@ func _option_begin(ins: Instruction) -> bool:
 		option_ui.show_options(options_text)
 	, CONNECT_ONE_SHOT)
 	_set_manager_mode(ManagerMode.INTERACT)
-	
+
 	# 等待玩家选择 / 取消（取消来自读档等外部流程）
 	_option_waiting = true
 	option_ui.option_made.connect(_on_option_made.bind(options_indices), CONNECT_ONE_SHOT)
 	option_ui.canceled.connect(_on_option_canceled, CONNECT_ONE_SHOT)
 	return true  # 选项 UI 接管推进
+
+
+## 选项条件三槽：cond_key 为空视为无条件
+func _option_condition_passed(item: Instruction) -> bool:
+	var cond_key: String = item.params[1]
+	if cond_key.is_empty():
+		return true
+	return _evaluate_condition(cond_key, item.params[2], item.params[3])
 
 
 func _on_option_made(option_index: int, options_indices: Array[int]) -> void:
@@ -635,26 +713,27 @@ func _jump_main_menu(_ins: Instruction = null) -> bool:
 	return true
 
 
-func _evaluate_condition(key: String, operator: String, value: float) -> bool:
-	# 不存在的变量视为 0.0
+func _evaluate_condition(key: String, operator: String, value: String) -> bool:
+	# 不存在的变量视为 0.0；右值支持数字字面量或变量名
 	var var_value: float = Global.vars.get(key, 0.0)
-	
+	var rhs := _resolve_value(value)
+
 	match operator:
-		"==", "=":
-			return var_value == value
-		"!=", "<>":
-			return var_value != value
+		"==":
+			return is_equal_approx(var_value, rhs)
+		"!=":
+			return not is_equal_approx(var_value, rhs)
 		">":
-			return var_value > value
+			return var_value > rhs
 		">=":
-			return var_value >= value
+			return var_value > rhs or is_equal_approx(var_value, rhs)
 		"<":
-			return var_value < value
+			return var_value < rhs
 		"<=":
-			return var_value <= value
+			return var_value < rhs or is_equal_approx(var_value, rhs)
 		_:
 			GalLogger.warn(LOG_TAG, "未知的比较运算符: " + operator + "，使用 == 作为默认值")
-			return var_value == value
+			return is_equal_approx(var_value, rhs)
 
 
 func _get_jump_target(current_idx: int) -> int:
@@ -712,13 +791,16 @@ func _jump_to_end_of_structure() -> void:
 	var scan = idx - 1
 	while _jump_table.has(scan):
 		scan = _jump_table[scan]
-	idx = scan + 1
+	# 落点为 END_IF 本身（而非其后），让 _end_if_condition 正常弹栈——修复执行栈泄漏（R9 缺陷 1）
+	idx = scan
 
 
 func _show_dialogue(dialogue_item: DialogueItem) -> void:
 	if not dialogue_ui.visible:
 		dialogue_ui.fade_in()
-	dialogue_ui.show_dialogue(dialogue_item.character, dialogue_item.dialogue)
+	# 渲染：转义处理 + {var} 插值 + 锚点剥离（锚点索引 = 显示文本字符串索引）
+	var rendered := DialogueRenderer.render(dialogue_item.dialogue)
+	dialogue_ui.show_dialogue(dialogue_item.character, rendered["text"], rendered["anchors"])
 	if manager_mode == ManagerMode.SKIP:
 		dialogue_ui.skip_typing()
 
@@ -727,18 +809,23 @@ func load_game(sg: SavedGame):
 	if sg.script_name.is_empty():
 		GalLogger.warn(LOG_TAG, "要先存档才能载入")
 		return
-	
+
 	# 清理状态
 	current_option_end_idx = -1
 	_option_waiting = false
-	_execution_stack = sg.execution_stack
-	
+	# execution_stack 不再入档/恢复（R9 缺陷 3：死字段，重放会重建）
+
 	for c in gal_world2d.characters:
 		c.reset([], true)
-	Global.vars = sg.vars
 	next_script = sg.script_name
-	await next_story(false)  # 注意：next_story 内部会重置选项状态，执行顺序很重要
-	
+	await next_story(false)  # 注意：next_story 内部会重置选项状态并 randomize 新种子，执行顺序很重要
+
+	# 重放准备：复位随机种子（使 var random 序列重现）、vars 从空累积
+	Global.rng.seed = sg.rng_seed
+	Global.rng_seed = sg.rng_seed
+	Global.vars.clear()
+	_replay_vars_snapshot = sg.vars.duplicate()
+
 	# 以 SKIP 模式重放到存档点，重建背景/立绘/音乐等现场
 	_replay_end = sg.idx
 	_set_manager_mode(ManagerMode.SKIP)

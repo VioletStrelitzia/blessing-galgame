@@ -83,15 +83,11 @@ func move_to(new_pos: Vector2, duration: float = 1.0) -> void:
 	_start_tween("normalized_position", new_pos, duration, AnimationType.MOVE_TO)
 
 
-## 等待一段时间，duration < 0 时暂停到下一次 play
+## 等待一段时间（队列内等待步，仅正秒）
 func wait(duration: float) -> void:
 	_stop_current_animation()
 	current_animation = AnimationType.WAIT
-	
-	if duration < 0:
-		GalLogger.info(LOG_TAG, "暂停，等待下一个 play 指令")
-		return
-	
+
 	timer = Timer.new()
 	timer.wait_time = duration
 	timer.one_shot = true
@@ -118,10 +114,12 @@ func play() -> void:
 
 
 ## 跳过并直接应用整组动画的最终状态
+## 注意：不 emit sequence_finished——跳过是「直达终态」而非「序列播完」，
+## 防止 wait:true 挂起（story_manager._char_waiting）被假完成信号唤醒
 func skip_all() -> void:
-	if animation_list.is_empty():
+	if animation_list.is_empty() and current_animation == AnimationType.NONE:
 		return
-	
+
 	GalLogger.debug(LOG_TAG, "跳过整个动画组，瞬间应用最终状态")
 
 	# 停止当前动画
@@ -137,7 +135,7 @@ func skip_all() -> void:
 
 		if current_step.is_empty():
 			continue
-			
+
 		var command = current_step[0]
 		var args: Array = current_step.slice(1)
 
@@ -166,11 +164,10 @@ func skip_all() -> void:
 			AnimationType.WAIT:
 				pass
 			_:
-				GalLogger.error(LOG_TAG, "不支持的动画步类型: " + command)
+				GalLogger.error(LOG_TAG, "不支持的动画步类型: " + str(command))
 
-	# 全部处理完，重置并发信号
+	# 全部处理完，重置（不发信号）
 	reset()
-	sequence_finished.emit()
 
 
 ## 应用当前动画的最终状态
@@ -243,7 +240,7 @@ func _on_timer_finished() -> void:
 
 ## 跳过当前动画
 func skip_animation() -> void:
-	if animation_list.is_empty():
+	if animation_list.is_empty() and current_animation == AnimationType.NONE:
 		return
 	
 	GalLogger.debug(LOG_TAG, "跳过动画步: %s" % AnimationType.keys()[current_animation])

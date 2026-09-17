@@ -5,6 +5,10 @@ const LOG_TAG := "Global"
 ## 剧本变量
 var vars: Dictionary[String, float] = {}
 
+## 剧本随机数生成器（var random 专用；种子随存档保存，读档重放前复位以保证确定性重放）
+var rng := RandomNumberGenerator.new()
+var rng_seed: int = 0
+
 var main: Node
 
 var text_interval: float = 0.05
