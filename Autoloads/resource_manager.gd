@@ -75,6 +75,12 @@ func load(res_type: String, res_key: String) -> Resource:
 
 	# 缓存并返回
 	if loaded_resource:
+		# 剧本产物的编译器版本校验（模组模式 check=false 不走导入，陈旧 .tres 会枚举错位）
+		if res_type == "script" and loaded_resource is GalEventItemSequence \
+			and loaded_resource.compiler != DialogueImporter.COMPILER_VERSION:
+			GalLogger.error(LOG_TAG, "剧本编译器版本不符（%s，需要 %s），请重新导入: %s" % [
+				loaded_resource.compiler, DialogueImporter.COMPILER_VERSION, res_key])
+			return null
 		if not _cache.has(res_type):
 			_cache[res_type] = {}
 		_cache[res_type][res_key] = loaded_resource
