@@ -2,7 +2,6 @@
 .godot/
 /android/
 .vscode/
-export_presets.cfg
 *.exe
 *.pck
 *.zip
@@ -12,6 +11,9 @@ export_presets.cfg
 *.gz
 *.bz2
 *.xz
+
+# 导出产物
+/build/
 
 # 编译产物（由 scripts/ 在首次运行时自动再生成）
 /GalSs/

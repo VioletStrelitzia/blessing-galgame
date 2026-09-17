@@ -20,11 +20,11 @@ static func open_dir(
 	create: bool = false
 ) -> DirAccess:
 	var dir = DirAccess.open(path)
+	if not dir and create:
+		make_dir_absolute(path)
+		dir = DirAccess.open(path)
 	if not dir:
-		if create:
-			make_dir_absolute(dir)
-		else:
-			GalLogger.error(LOG_TAG, "无法打开目录: " + path)
+		GalLogger.error(LOG_TAG, "无法打开目录: " + path)
 	return dir
 
 
@@ -68,6 +68,12 @@ static func get_file_list(
 	return list
 
 
+## 导出包内资源的物理名可能带 .remap 后缀（见 docs/路径策略设计.md），
+## 列目录拿文件名时必须经此还原为逻辑名
+static func logical_name(file: String) -> String:
+	return file.trim_suffix(".remap")
+
+
 ## 递归合并配置字典
 static func merge_dicts(target: Dictionary, source: Dictionary) -> void:
 	for key in source:
@@ -89,6 +95,8 @@ static func _get_file_list(
 ) -> Array[String]:
 	var list: Array[String] = []
 	var dir = Utils.open_dir(path, false)
+	if not dir:
+		return list
 	dir.list_dir_begin()
 	var file_or_dir = dir.get_next()
 	while not file_or_dir.is_empty():

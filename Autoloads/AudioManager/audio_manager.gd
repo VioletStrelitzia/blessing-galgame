@@ -25,6 +25,15 @@ func _ready() -> void:
 	GalLogger.info(LOG_TAG, "加载完成")
 
 
+func _exit_tree() -> void:
+	# 退出时立即停止所有播放并释放流引用，避免 AudioStreamPlayback 滞留到音频线程收尾之后
+	for player in music_manager.players + sfx_manager.players:
+		player.stop()
+		player.stream = null
+	voice_manager.player.stop()
+	voice_manager.player.stream = null
+
+
 func play_music(
 	audio: AudioStream,
 	offset: float = 0,

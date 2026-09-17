@@ -5,7 +5,7 @@ const LOG_TAG := "Importer"
 var check: bool = true
 var read_dir: String = "res://scripts"
 var save_dir: String = "res://GalSs"
-var hash_file_path: String = save_dir.path_join(".hash")
+var hash_file_path: String
 
 var saved_hash: Dictionary = {}
 var need_update: bool = false
@@ -76,6 +76,7 @@ func _init() -> void:
 	_regex_dialogue.compile("^(?:(.*?):)?\\s*(.*)$")
 
 func _ready() -> void:
+	hash_file_path = save_dir.path_join(".hash")
 	if DirAccess.dir_exists_absolute(save_dir):
 		Utils.open_dir(save_dir)
 		saved_hash = Utils.load_json(hash_file_path)

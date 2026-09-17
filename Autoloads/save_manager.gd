@@ -2,7 +2,7 @@ extends Node
 const LOG_TAG := "SaveManager"
 
 
-var SAVE_DIR = OS.get_executable_path().get_base_dir().path_join(Global.config["save_dir"])
+var SAVE_DIR: String
 
 # 存档信息列表: {saved_game: SavedGame, path: String}
 var save_data_list: Array[Dictionary] = []
@@ -15,6 +15,7 @@ var selected_index: int = -1
 
 func _ready() -> void:
 	# 确保存档目录存在
+	SAVE_DIR = PathManager.writable_root().path_join(Global.config["save_dir"])
 	if not DirAccess.dir_exists_absolute(SAVE_DIR):
 		Utils.make_dir_absolute(SAVE_DIR)
 	
@@ -105,6 +106,16 @@ func _parse_timestamp(timestamp_str: String) -> int:
 	return 0
 
 
+## 解析缩略图路径：入档只存文件名；兼容旧档的绝对路径（失效时回退到存档目录下同名文件）
+func _thumbnail_path(saved_game: SavedGame, save_file_path: String = "") -> String:
+	var p := saved_game.thumbnail_path
+	if p.is_empty():
+		return "" if save_file_path.is_empty() else SAVE_DIR.path_join(save_file_path.get_basename() + ".png")
+	if FileAccess.file_exists(p):
+		return p
+	return SAVE_DIR.path_join(p.get_file())
+
+
 ## 将存档列表渲染到 ItemList
 func update_ui() -> void:
 	if not save_ui or not save_ui.item_list:
@@ -137,17 +148,11 @@ func update_ui() -> void:
 		
 		# 加载缩略图
 		var thumbnail: Texture2D = null
-		var thumbnail_path = saved_game.thumbnail_path
-		if thumbnail_path.is_empty():
-			# 未设置路径时按文件名推断
-			var base_name = file_path.get_basename()
-			thumbnail_path = SAVE_DIR.path_join(base_name + ".png")
-		
+		var thumbnail_path := _thumbnail_path(saved_game, file_path)
 		if not thumbnail_path.is_empty() and FileAccess.file_exists(thumbnail_path):
 			var image = Image.load_from_file(thumbnail_path)
 			if image:
-				var image_texture = ImageTexture.create_from_image(image)
-				thumbnail = image_texture
+				thumbnail = ImageTexture.create_from_image(image)
 		
 		# 添加到 ItemList
 		item_list.add_item(display_text, thumbnail)
@@ -213,8 +218,7 @@ func save_game(slot_index: int = -1, title: String = "") -> bool:
 		var size = save_ui.texture_rect.size
 		screenshot.resize(size[0], size[1], Image.INTERPOLATE_LANCZOS)
 		if screenshot.save_png(thumbnail_path) == OK:
-			GalLogger.debug(LOG_TAG, "缩略图路径: %s" % thumbnail_path)
-			saved_game.thumbnail_path = thumbnail_path
+			saved_game.thumbnail_path = thumbnail_path.get_file()
 			GalLogger.info(LOG_TAG, "缩略图已保存: " + thumbnail_path)
 		else:
 			GalLogger.error(LOG_TAG, "缩略图保存失败")
@@ -311,9 +315,9 @@ func delete_save(item_index: int) -> bool:
 		GalLogger.info(LOG_TAG, "删除存档: %s" % file_path)
 	
 	# 删除缩略图
-	if saved_game and not saved_game.thumbnail_path.is_empty():
-		var thumbnail_path = saved_game.thumbnail_path
-		if FileAccess.file_exists(thumbnail_path):
+	if saved_game:
+		var thumbnail_path := _thumbnail_path(saved_game)
+		if not thumbnail_path.is_empty() and FileAccess.file_exists(thumbnail_path):
 			DirAccess.remove_absolute(thumbnail_path)
 			GalLogger.debug(LOG_TAG, "删除缩略图: %s" % thumbnail_path)
 	
@@ -340,20 +344,9 @@ func _update_selected_display() -> void:
 		if selected_index >= 0 and selected_index < save_data_list.size():
 			var save_data = save_data_list[selected_index]
 			var saved_game: SavedGame = save_data.get("saved_game")
-			
-			if saved_game and not saved_game.thumbnail_path.is_empty():
-				var thumbnail_path = saved_game.thumbnail_path
-				if FileAccess.file_exists(thumbnail_path):
-					var image = Image.load_from_file(thumbnail_path)
-					if image:
-						var image_texture = ImageTexture.create_from_image(image)
-						save_ui.texture_rect.texture = image_texture
-					else:
-						save_ui.texture_rect.texture = null
-				else:
-					save_ui.texture_rect.texture = null
-			else:
-				save_ui.texture_rect.texture = null
+			var thumbnail_path := _thumbnail_path(saved_game) if saved_game else ""
+			var image := Image.load_from_file(thumbnail_path) if FileAccess.file_exists(thumbnail_path) else null
+			save_ui.texture_rect.texture = ImageTexture.create_from_image(image) if image else null
 		else:
 			save_ui.texture_rect.texture = null
 	
