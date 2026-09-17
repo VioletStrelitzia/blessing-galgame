@@ -50,6 +50,7 @@ var _switching := false  ## next_story 转场进行中，屏蔽输入与推进
 var _option_waiting := false  ## 选项 UI 打开中
 var _char_waiting := false  ## char wait:true 挂起中（等 sequence_finished）
 var _wait_waiting := false  ## wait 指令挂起中（等定时器）
+var _trans_waiting := false  ## trans wait:true 挂起中（等 transition_finished）
 var _replay_end := -1  ## 读档 SKIP 重放的终点索引，-1 表示不在重放
 var _replay_vars_snapshot: Dictionary = {}  ## 重放结束后兜底覆盖的 vars 快照
 
@@ -109,6 +110,10 @@ func _ready() -> void:
 		Instruction.Head.ELSE: 				_else_condition,
 		Instruction.Head.END_IF: 			_end_if_condition,
 		Instruction.Head.WAIT: 				_wait,
+		Instruction.Head.SCENE_MOUNT: 		_scene_mount,
+		Instruction.Head.SCENE_UNMOUNT: 	_scene_unmount,
+		Instruction.Head.TRANSITION_IN: 	_trans_in,
+		Instruction.Head.TRANSITION_OUT: 	_trans_out,
 	}
 
 	dialogue_ui.anchor_triggered.connect(func(ins: Instruction): execute(ins))
@@ -216,6 +221,7 @@ func run_script(mode: IterateMode = IterateMode.DEFAULT) -> void:
 	_waiting = false
 	_char_waiting = false
 	_wait_waiting = false
+	_trans_waiting = false
 	AudioManager.stop_voice()
 	for c in gal_world2d.characters:
 		c.skip_all()
@@ -592,6 +598,91 @@ func _wait(ins: Instruction) -> bool:
 	return true
 
 
+# --- 场景挂载与转场（转发 SceneManager，不建平行系统） ---
+
+func _scene_mount(ins: Instruction) -> bool:
+	# 参数: [type, name, path, time, anim]
+	var scene_type: String = ins.params[0]
+	var scene_name: String = ins.params[1]
+	var path: String = ins.params[2]
+	var duration: float = ins.params[3]
+	var anim: String = ins.params[4]
+	if anim != "fade":
+		GalLogger.warn(LOG_TAG, "scene mount 暂只支持 fade 动画，收到: " + anim)
+
+	SceneManager.mount({scene_type: {scene_name: path}})
+
+	# time > 0 时对挂载节点做淡入
+	if duration > 0.0:
+		var node := SceneManager.get_scene(scene_type, "mounted", scene_name)
+		if node is CanvasItem:
+			node.modulate.a = 0.0
+			create_tween().tween_property(node, "modulate:a", 1.0, duration)
+	return false
+
+
+func _scene_unmount(ins: Instruction) -> bool:
+	# 参数: [type, name, time, anim, free]
+	var scene_type: String = ins.params[0]
+	var scene_name: String = ins.params[1]
+	var duration: float = ins.params[2]
+	var anim: String = ins.params[3]
+	var free: bool = ins.params[4]
+	if anim != "fade":
+		GalLogger.warn(LOG_TAG, "scene unmount 暂只支持 fade 动画，收到: " + anim)
+
+	var node := SceneManager.get_scene(scene_type, "mounted", scene_name)
+	if duration > 0.0 and node is CanvasItem:
+		# 先淡出，完成后卸载
+		var tween := create_tween()
+		tween.tween_property(node, "modulate:a", 0.0, duration)
+		tween.finished.connect(func():
+			SceneManager.unmount({scene_type: {scene_name: ""}}, free)
+		, CONNECT_ONE_SHOT)
+	else:
+		SceneManager.unmount({scene_type: {scene_name: ""}}, free)
+	return false
+
+
+func _trans_in(ins: Instruction) -> bool:
+	return _do_transition(ins)
+
+
+func _trans_out(ins: Instruction) -> bool:
+	return _do_transition(ins)
+
+
+## 参数: [duration, anim, wait]；wait:true 挂起剧情直到转场完成
+func _do_transition(ins: Instruction) -> bool:
+	var duration: float = ins.params[0] as float
+	var anim: String = ins.params[1] as String
+	var wait: bool = ins.params[2] as bool
+
+	# SKIP/重放中不真实转场
+	if manager_mode == ManagerMode.SKIP or _replay_end >= 0:
+		return false
+
+	if not is_instance_valid(SceneManager.transition_controller):
+		# 无转场控制器（如 headless 测试环境）：警告且绝不挂起，防死锁
+		GalLogger.warn(LOG_TAG, "trans 指令无转场控制器可用，跳过: " + anim)
+		return false
+
+	if wait:
+		_trans_waiting = true
+		SceneManager.transition_controller.transition_finished.connect(_on_trans_finished, CONNECT_ONE_SHOT)
+		SceneManager.transition(anim, duration)
+		return true
+	SceneManager.transition(anim, duration)
+	return false
+
+
+func _on_trans_finished() -> void:
+	if not _trans_waiting:
+		return
+	_trans_waiting = false
+	run_script()
+
+
 func _set_begin_script(ins: Instruction) -> bool:
 	# 参数: [script_name: String]
 	var begin_script: String = ins.params[0] as String
@@ -799,7 +890,7 @@ func _show_dialogue(dialogue_item: DialogueItem) -> void:
 	if not dialogue_ui.visible:
 		dialogue_ui.fade_in()
 	# 渲染：转义处理 + {var} 插值 + 锚点剥离（锚点索引 = 显示文本字符串索引）
-	var rendered := DialogueRenderer.render(dialogue_item.dialogue)
+	var rendered := DialogueRenderer.render(dialogue_item.dialogue, Global.vars)
 	dialogue_ui.show_dialogue(dialogue_item.character, rendered["text"], rendered["anchors"])
 	if manager_mode == ManagerMode.SKIP:
 		dialogue_ui.skip_typing()
