@@ -1,45 +1,48 @@
 // ============================================
-// Blessing Galgame Engine —— 最小演示剧本 1
-// 演示：背景设置、BGM、立绘动画组、对话/旁白、后指令、选项分支
+// Blessing Galgame Engine —— 最小演示剧本 1（BGalS v2）
+// 演示：开场布置（独立指令）、前/后指令、立绘动画、
+//       插值、内联锚点、选项分支、条件选项、变量
 // ============================================
 
-// 前指令（< 开头）：在首句对话显示前完成场景布置
-< bg set demo_stage
-< music play demo_bgm 0 true
-
-// 立绘动画组：character 开始收集，char play 播放
-< character 0
-< char setup demo_char_a 0.3 0.95
-< char show 0.6
-< char play 0
+// 独立指令：不绑定对话，载入即执行（开场布置）
+bg demo_stage
+music demo_bgm from:0 loop:true fade:1.0
+char 0 setup demo_char_a 0.3,0.95
+char 0 show time:0.6
 
 引路人: 欢迎来到 Blessing Galgame Engine 的最小演示。
 引路人: 每一句话就是一个「对话块」：前指令在对话前执行，后指令在对话后执行。
-这是旁白——不带说话者的行会被视为旁白。
+这是旁白——不含冒号的行会被视为旁白。
 
-// 后指令（> 开头）：这句对话显示之后切换背景
+// 后指令（> 开头）：这句对话打字完成立即切换背景（带渐变）
 引路人: 注意看，这句说完之后背景会切换。
-> bg set demo_stage_night
+> bg demo_stage_night time:1.0
 
-// 立绘移动（底部中心锚点）
-< character 0
-< char move 0.5 0.95 1.0
-< char play 0
+// 前指令（< 开头）：点击推进后、下句对话显示前执行
+< char 0 move 0.5,0.95 time:1.0
+引路人: 立绘可以移动[char 0 texture demo_char_b]、换图、淡入淡出。
 
-引路人: 立绘可以移动、换图、淡入淡出。
+// 变量与插值
+var affection = 1
+引路人: 当前好感度：{affection}。
+
 引路人: 接下来是一个选项分支，请选择。
 
-// 选项分支：option 后紧跟该分支的内容，option end 收尾
-< option "继续看第二个场景"
-引路人: 好，我们跳转到第二个脚本。
-< jump demo_scene2
-
-< option "留在这里"
-引路人: 没问题，那我们直接走向尾声。
-
-< option end
+// 选项分支：缩进块，条件选项用 if: 后缀
+* 前往第二幕
+	引路人: 好，我们跳转到第二个脚本。
+	jump demo_scene2
+* 留在这里 if:affection >= 1
+	引路人: 没问题，那我们直接走向尾声。
 
 // 共通部分
 引路人: 你可以试试主菜单的存档、读档和设置功能。
+
+if affection >= 1
+	引路人: 你对这里已经很熟悉了。
+else
+	引路人: 初次见面，请多关照。
+
 引路人: 演示到此结束，感谢体验！
-< jump main_menu
+begin demo_scene1
+jump main_menu
