@@ -11,15 +11,15 @@ signal auto_button_pressed
 
 
 func _ready() -> void:
-	StoryManager.manager_mode_changed.connect(_on_manager_mode_changed)
-	_on_manager_mode_changed(StoryManager.manager_mode)
+	Synchronizer.mode_changed.connect(_on_mode_changed)
+	_on_mode_changed(Synchronizer.mode)
 
 
-func _on_manager_mode_changed(mode: StoryManager.ManagerMode) -> void:
-	var is_stop := mode == StoryManager.ManagerMode.STOP
+func _on_mode_changed(mode: Synchronizer.Mode) -> void:
+	var is_stop := mode == Synchronizer.Mode.STOP
 	skip_button.disabled = is_stop
 	auto_button.disabled = is_stop
-	auto_button.button_pressed = (mode == StoryManager.ManagerMode.AUTO)
+	auto_button.button_pressed = (mode == Synchronizer.Mode.AUTO)
 
 
 func _on_skip_pressed() -> void:

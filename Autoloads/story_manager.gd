@@ -12,14 +12,6 @@ enum IterateMode {
 	POST_COMMAND,  ## 后指令模式，执行碰到非后指令停下
 }
 
-enum ManagerMode {
-	INTERACT,
-	AUTO,
-	SKIP,
-	STOP,
-}
-
-var manager_mode: ManagerMode = ManagerMode.INTERACT
 var iterate_mode: IterateMode = IterateMode.DEFAULT
 var idx := 0
 var log_idx := 0
@@ -36,18 +28,14 @@ var next_script: String
 var cur_script_name: String = ""
 var cur_script: GalEventItemSequence
 
-# manager_mode 变化时发出的信号
-signal manager_mode_changed(new_mode: ManagerMode)
-
 # --- 推进控制 ---
-# 解释器主循环 run_script 是同步的（无 await）：
-# 执行到对白/选项/跳转/等待即返回，推进由信号与定时器驱动（见 _arm_advance_trigger）
+# 解释器主循环 run_script 是同步的（无 await）。挂起登记/模式机/计时器/抢占全部收编于 Synchronizer；
+# 本类只保留回合结构状态：_waiting（停在对白停止点）、_suspended（停在阻塞挂起）、_turn_stopped（本回合已停）。
 var _waiting := false  ## 停在对白停止点（后指令已消费完），等待推进触发
 var _switching := false  ## next_story 转场进行中，屏蔽输入与推进
-var _option_waiting := false  ## 选项 UI 打开中
-var _char_waiting := false  ## char wait:true 挂起中（等 sequence_finished）
-var _wait_waiting := false  ## wait 指令挂起中（等定时器）
-var _trans_waiting := false  ## trans wait:true 挂起中（等 transition_finished）
+var _suspended := false  ## 停在 Synchronizer 阻塞挂起上（holds_cleared 续跑）
+var _turn_stopped := false  ## 本回合已停止（对白展示/结构停止）；run_script 判停用
+var _option_hold := Synchronizer.INVALID  ## 选项挂起凭证（INVALID = 无选项等待）
 var _replay_end := -1  ## 读档 SKIP 重放的终点索引，-1 表示不在重放
 var _replay_vars_snapshot: Dictionary = {}  ## 重放结束后兜底覆盖的 vars 快照
 
@@ -75,6 +63,11 @@ func _ready() -> void:
 	dialogue_ui.dialogue_finished.connect(_on_dialogue_finished)
 	gal_ui.skip_button_pressed.connect(on_change_skip)
 	gal_ui.auto_button_pressed.connect(on_change_auto)
+
+	# 同步器收编：自动推进放行 / 挂起清空续跑与重布 / 模式切换重布触发器
+	Synchronizer.advance_requested.connect(_on_advance_requested)
+	Synchronizer.holds_cleared.connect(_on_holds_cleared)
+	Synchronizer.mode_changed.connect(_on_mode_changed)
 	
 	# 初始化指令处理函数注册表
 	_instruction_handlers = {
@@ -121,48 +114,50 @@ func _ready() -> void:
 
 
 func on_forward() -> void:
-	match manager_mode:
-		ManagerMode.STOP:
+	match Synchronizer.mode:
+		Synchronizer.Mode.STOP:
 			return  # STOP 模式下屏蔽一切外部输入
-		ManagerMode.INTERACT:
+		Synchronizer.Mode.INTERACT:
 			_advance()
 		_:
 			# AUTO/SKIP 中点击：回到 INTERACT 并跳完当前打字
-			_set_manager_mode(ManagerMode.INTERACT)
+			Synchronizer.mode = Synchronizer.Mode.INTERACT
 			dialogue_ui.skip_typing()
 
 
 func on_fast_forward() -> void:
-	match manager_mode:
-		ManagerMode.STOP:
+	match Synchronizer.mode:
+		Synchronizer.Mode.STOP:
 			return  # STOP 模式下屏蔽一切外部输入
-		ManagerMode.INTERACT:
+		Synchronizer.Mode.INTERACT:
 			_advance()
 			dialogue_ui.skip_typing()  # 快进：推进后立即跳完新对白
 		_:
-			_set_manager_mode(ManagerMode.INTERACT)
+			Synchronizer.mode = Synchronizer.Mode.INTERACT
 			dialogue_ui.skip_typing()
 
 
 func on_change_skip() -> void:
 	# STOP 模式下屏蔽一切外部输入
-	if manager_mode == ManagerMode.STOP:
+	if Synchronizer.mode == Synchronizer.Mode.STOP:
 		return
-	if manager_mode == ManagerMode.SKIP:
-		_set_manager_mode(ManagerMode.INTERACT)
+	if Synchronizer.mode == Synchronizer.Mode.SKIP:
+		Synchronizer.mode = Synchronizer.Mode.INTERACT
 	else:
-		_set_manager_mode(ManagerMode.SKIP)
+		Synchronizer.mode = Synchronizer.Mode.SKIP
+		# 进入跳过：按处置矩阵清理回合内挂起（角色直达终态、等待/语音终止、转场后台播完、选项保留）
+		Synchronizer.preempt(Synchronizer.PRIO_SKIP_ENTER)
 		dialogue_ui.skip_typing()  # 跳完当前打字；finished 信号会驱动后指令与续跑
 
 
 func on_change_auto() -> void:
 	# STOP 模式下屏蔽一切外部输入
-	if manager_mode == ManagerMode.STOP:
+	if Synchronizer.mode == Synchronizer.Mode.STOP:
 		return
-	if manager_mode == ManagerMode.AUTO:
-		_set_manager_mode(ManagerMode.INTERACT)
+	if Synchronizer.mode == Synchronizer.Mode.AUTO:
+		Synchronizer.mode = Synchronizer.Mode.INTERACT
 	else:
-		_set_manager_mode(ManagerMode.AUTO)
+		Synchronizer.mode = Synchronizer.Mode.AUTO
 
 
 func load_script(script_name: String):
@@ -170,36 +165,59 @@ func load_script(script_name: String):
 	cur_script = ResourceManager.load("script", script_name) as GalEventItemSequence
 
 
-## 推进一个回合：打字中则跳完（dialogue_finished 驱动后指令与续跑），否则执行到下一停止点
-func _advance() -> void:
+## 推进一个回合：打字中则跳完（dialogue_finished 驱动后指令与续跑），否则经同步器门闸推进
+func _advance(from_input := true) -> void:
 	if _switching:
 		return
 	if dialogue_ui.skip_typing():
 		return
-	run_script()
+	if Synchronizer.request_advance(from_input):
+		run_script()
 
 
-## 同步执行剧本直到本回合停止点（对白/选项/跳转/等待）。无 await：
-## 对白停止后的推进由 _arm_advance_trigger 按 manager_mode 布置
+## 自动推进放行（AUTO/SKIP 计时到点且门闸畅通）
+func _on_advance_requested() -> void:
+	if _waiting:
+		_advance(false)
+
+
+## 挂起全清：被阻塞挂起停住则续跑；停在对白停止点则按当前模式重布触发器（如 AUTO 等语音结束）
+func _on_holds_cleared() -> void:
+	if _suspended:
+		_suspended = false
+		run_script()
+	elif _waiting and not _switching:
+		_arm_advance_trigger()
+
+
+## 模式切换：同步器已作废旧预约计时；等待中按新模式重布触发器
+func _on_mode_changed(_mode: Synchronizer.Mode) -> void:
+	if _waiting and not _switching:
+		_arm_advance_trigger()
+
+
+## 同步执行剧本直到本回合停止点。无 await。
+## 回合停止条件（结构性判停，不经返回值传播）：对白展示 / 同步器存在阻塞挂起 / 换幕中
 func run_script(mode: IterateMode = IterateMode.DEFAULT) -> void:
 	if cur_script == null:
 		return
 	iterate_mode = mode
-	# 挂起守卫统一复位：本次推进后由新遇到的指令重新置位
-	_waiting = false
-	_char_waiting = false
-	_wait_waiting = false
-	_trans_waiting = false
+	_waiting = false  # 回合结构旗标：本次推进后由 _on_dialogue_finished 重新置位
+	# 回合边界：停旧语音 + 角色视觉结算（不兼管挂起簿记——挂起生命周期由同步器门闸/抢占管理）
 	AudioManager.stop_voice()
 	for c in gal_world2d.characters:
 		c.skip_all()
+	_turn_stopped = false
 	while idx < cur_script.seq.size():
 		var cur_item := cur_script.seq[idx]
 		if log_idx != idx:
 			GalLogger.debug(LOG_TAG, "执行: %s" % cur_item)
 			log_idx = idx
-		if _step(cur_item):
+		_step(cur_item)
+		if _turn_stopped or Synchronizer.has_blocking() or _switching:
 			break
+	# 挂起态 = 停在阻塞挂起且本回合未因对白/结构停止（对白回合的挂起只门闸自动推进，不驱动续跑）
+	_suspended = not _turn_stopped and Synchronizer.has_blocking()
 
 
 ## 独立指令判定（排除式：is 是子类型判定，直接 is Instruction 会吞掉子类）
@@ -207,25 +225,26 @@ func _is_independent(item: GalEventItem) -> bool:
 	return item is Instruction and item is not PrevInstruction and item is not PostInstruction
 
 
-## 执行单个条目，返回 true 表示本回合停止（对白展示/外部接管/模式结束）
-func _step(item: GalEventItem) -> bool:
+## 执行单个条目；回合是否停止由 run_script 循环判停（_turn_stopped/阻塞挂起/换幕），不经返回值传播
+func _step(item: GalEventItem) -> void:
 	match iterate_mode:
 		IterateMode.DEFAULT:
 			if item is DialogueItem:
 				_show_dialogue(item)
 				idx += 1
 				iterate_mode = IterateMode.POST_COMMAND
-				return true  # 对白停止点：等打字完成
-			idx += 1
-			return execute(item)
+				_turn_stopped = true  # 对白停止点：等打字完成
+			else:
+				idx += 1
+				execute(item)
 		IterateMode.POST_COMMAND:
 			# 打字完成窗口：消费后指令与独立指令，遇前指令或对话停
 			if item is PostInstruction or _is_independent(item):
 				idx += 1
-				return execute(item)
-			iterate_mode = IterateMode.DEFAULT
-			return true
-	return false
+				execute(item)
+			else:
+				iterate_mode = IterateMode.DEFAULT
+				_turn_stopped = true
 
 
 ## 打字完成（自然结束或被跳过）：消费后指令与独立指令，然后按模式安排下一次推进
@@ -238,8 +257,11 @@ func _on_dialogue_finished() -> void:
 			GalLogger.debug(LOG_TAG, "执行: %s" % item)
 			log_idx = idx
 		idx += 1
-		if execute(item):
-			return  # 选项/跳转/等待接管推进，不再布置触发器
+		execute(item)
+		if Synchronizer.has_blocking() or _switching:
+			# 挂起/选项/换幕接管推进：不再布置触发器（挂起由 holds_cleared 续跑）
+			_suspended = Synchronizer.has_blocking()
+			return
 	iterate_mode = IterateMode.DEFAULT
 	_waiting = true
 
@@ -250,7 +272,7 @@ func _on_dialogue_finished() -> void:
 		if not _replay_vars_snapshot.is_empty():
 			Global.vars = _replay_vars_snapshot.duplicate()
 			_replay_vars_snapshot = {}
-		_set_manager_mode(ManagerMode.INTERACT)
+		Synchronizer.mode = Synchronizer.Mode.INTERACT
 		return
 
 	_arm_advance_trigger()
@@ -258,68 +280,35 @@ func _on_dialogue_finished() -> void:
 
 ## 按当前模式布置推进触发器；INTERACT 等玩家输入，STOP 由外部接管
 func _arm_advance_trigger() -> void:
-	match manager_mode:
-		ManagerMode.AUTO:
-			# 推进时机 = max(打字完成, 语音播完) + auto_wait_time：语音在播则等 voice_finished 后再计时
+	match Synchronizer.mode:
+		Synchronizer.Mode.AUTO:
+			# 推进时机 = max(打字完成, 语音播完) + auto_wait_time：
+			# 语音在播则只挂起 VOICE（不预约计时），voice_finished 释放后经 holds_cleared 重布本函数再计时；
+			# voice stop 不触发 finished——「停止中」由 is_voice_playing 排除，残留凭证由点击/复位抢占清理
 			if AudioManager.is_voice_playing():
-				_schedule_advance_after_voice()
+				var hold := Synchronizer.acquire(&"voice")
+				if hold != Synchronizer.INVALID:
+					AudioManager.voice_finished.connect(func(): Synchronizer.release(hold), CONNECT_ONE_SHOT)
 			else:
-				_schedule_advance(Global.auto_wait_time)
-		ManagerMode.SKIP:
-			_schedule_advance(0.0)
+				Synchronizer.schedule(Global.auto_wait_time)
+		Synchronizer.Mode.SKIP:
+			Synchronizer.schedule(0.0)
 
 
-## 语音在播时的 AUTO 推进：等 voice_finished 再进入正常计时
-##（一次性连接 + 触发时校验：语音被停/模式已切/已被推进时此处空触发丢弃；
-## voice stop 不触发 finished，「停止中」状态由 is_voice_playing 在布置时排除）
-func _schedule_advance_after_voice() -> void:
-	AudioManager.voice_finished.connect(func():
-		if _waiting and manager_mode == ManagerMode.AUTO:
-			_schedule_advance(Global.auto_wait_time)
-	, CONNECT_ONE_SHOT)
-
-
-## 预约一次推进；触发时若已切换模式或已被推进则丢弃（一次性定时器，随树暂停）
-func _schedule_advance(delay: float) -> void:
-	var armed_mode := manager_mode
-	get_tree().create_timer(delay, false).timeout.connect(func():
-		if _waiting and manager_mode == armed_mode:
-			_advance()
-	, CONNECT_ONE_SHOT)
-
-
-func _set_manager_mode(mode: ManagerMode) -> void:
-	if manager_mode == mode:
-		return
-	
-	manager_mode = mode
-	
-	# 等待中切换模式：按新模式重新布置推进触发器（旧预约触发时会被守卫丢弃）
-	if _waiting:
-		_arm_advance_trigger()
-	
-	# 同步 UI（STOP 模式禁用自动/跳过）
-	if gal_ui:
-		gal_ui.auto_button.button_pressed = (mode == ManagerMode.AUTO)
-		var disabled := (mode == ManagerMode.STOP)
-		gal_ui.skip_button.disabled = disabled
-		gal_ui.auto_button.disabled = disabled
-	
-	manager_mode_changed.emit(mode)
-
-
-func execute(ins: Instruction) -> bool:
+## 执行指令。返回值的停止协议已废除：是否停止由 run_script 循环经结构条件判停
+##（对白展示 / Synchronizer.has_blocking() / _switching），锚点旁路天然同语义
+func execute(ins: Instruction) -> void:
 	var handler = _instruction_handlers.get(ins.head)
 	if handler is Callable:
-		return handler.call(ins)
-	return false
+		handler.call(ins)
 
 
 func next_story(free: bool = false) -> void:
 	_switching = true
 	_waiting = false
-	_option_waiting = false
-	_set_manager_mode(ManagerMode.INTERACT)
+	_suspended = false
+	_option_hold = Synchronizer.INVALID
+	Synchronizer.reset()  # 清全部挂起与预约计时 + 回 INTERACT
 
 	# 新局新种子（load_game 路径会在转场后复位为存档种子）
 	Global.rng.randomize()
@@ -359,7 +348,7 @@ func next_story(free: bool = false) -> void:
 	_switching = false
 
 
-func _music_play(ins: Instruction) -> bool:
+func _music_play(ins: Instruction) -> void:
 	# 解包参数: [path: String, from: float, loop: bool, fade_in: float, fade_out: float, volume: float]
 	var key: String = ins.params[0] as String
 	var from_position: float = ins.params[1] as float
@@ -373,38 +362,34 @@ func _music_play(ins: Instruction) -> bool:
 		AudioManager.play_music(audio_stream, from_position, fade_out, fade_in, loop, volume)
 	else:
 		GalLogger.error(LOG_TAG, "加载 BGM \"" + key + "\"失败")
-	return false
 
 
-func _music_pause(_ins: Instruction = null) -> bool:
+func _music_pause(_ins: Instruction = null) -> void:
 	# 无需参数
 	AudioManager.pause_music()
-	return false
 
 
-func _music_resume(_ins: Instruction = null) -> bool:
+func _music_resume(_ins: Instruction = null) -> void:
 	# 无需参数
 	AudioManager.resume_music()
-	return false
 
 
-func _music_stop(ins: Instruction = null) -> bool:
+func _music_stop(ins: Instruction = null) -> void:
 	# 参数: [fade: float]
 	var fade := 1.0
 	if ins != null:
 		fade = ins.params[0] as float
 	AudioManager.stop_music(fade)
-	return false
+	return
 
 
 ## music volume <0~1> [fade:秒]：调节在播音轨响度，不重启曲目
-func _music_volume(ins: Instruction) -> bool:
+func _music_volume(ins: Instruction) -> void:
 	# 参数: [volume: float, fade: float]
 	AudioManager.set_music_volume(ins.params[0] as float, ins.params[1] as float)
-	return false
 
 
-func _voice_play(ins: Instruction) -> bool:
+func _voice_play(ins: Instruction) -> void:
 	# 解包参数: [path: String, from: float, volume: float]
 	var key: String = ins.params[0] as String
 	var offset: float = ins.params[1] as float
@@ -415,10 +400,9 @@ func _voice_play(ins: Instruction) -> bool:
 		AudioManager.play_voice(audio_stream, offset, volume)
 	else:
 		GalLogger.error(LOG_TAG, "加载语音\"" + key + "\"失败")
-	return false
 
 
-func _sfx_play(ins: Instruction) -> bool:
+func _sfx_play(ins: Instruction) -> void:
 	# 解包参数: [path: String, from: float, volume: float, loop: bool]
 	var key: String = ins.params[0] as String
 	var offset: float = ins.params[1] as float
@@ -430,34 +414,34 @@ func _sfx_play(ins: Instruction) -> bool:
 		AudioManager.play_sfx(audio_stream, offset, volume, loop)
 	else:
 		GalLogger.error(LOG_TAG, "加载音效\"" + key + "\"失败")
-	return false
+	return
 
 
 ## voice stop [fade:秒]；推进对话时的自动停止走 AudioManager.stop_voice 默认参数
-func _voice_stop(ins: Instruction) -> bool:
+func _voice_stop(ins: Instruction) -> void:
 	# 参数: [fade: float]
 	AudioManager.stop_voice(ins.params[0] as float)
-	return false
+	return
 
 
 ## sfx stop [引用] [fade:秒]；引用省略 = 停止全部。播放中的引用必然已缓存，load 命中缓存不产生新加载
-func _sfx_stop(ins: Instruction) -> bool:
+func _sfx_stop(ins: Instruction) -> void:
 	# 参数: [ref: String, fade: float]
 	var ref: String = ins.params[0]
 	var fade: float = ins.params[1]
 	if ref.is_empty():
 		AudioManager.stop_all_sfx(fade)
-		return false
+		return
 	var audio_stream = ResourceManager.load("audio", ref)
 	if audio_stream:
 		AudioManager.stop_sfx(audio_stream, fade)
 	else:
 		GalLogger.warn(LOG_TAG, "sfx stop 引用无法解析（可能从未播放）: " + ref)
-	return false
+	return
 
 
 ## sfx volume <引用> <0~1> [fade:秒]：按流身份匹配调节在播音效响度，不中断播放
-func _sfx_volume(ins: Instruction) -> bool:
+func _sfx_volume(ins: Instruction) -> void:
 	# 参数: [ref: String, volume: float, fade: float]
 	var ref: String = ins.params[0]
 	var audio_stream = ResourceManager.load("audio", ref)
@@ -465,10 +449,9 @@ func _sfx_volume(ins: Instruction) -> bool:
 		AudioManager.set_sfx_volume(audio_stream, ins.params[1] as float, ins.params[2] as float)
 	else:
 		GalLogger.warn(LOG_TAG, "sfx volume 引用无法解析（可能从未播放）: " + ref)
-	return false
 
 
-func _set_background(ins: Instruction) -> bool:
+func _set_background(ins: Instruction) -> void:
 	# 解包参数: [path: String, time: float]
 	var key: String = ins.params[0] as String
 	var time: float = ins.params[1] as float
@@ -481,7 +464,7 @@ func _set_background(ins: Instruction) -> bool:
 			gal_world2d.set_background_texture(background_tex)
 	else:
 		GalLogger.error(LOG_TAG, "加载背景失败: " + key)
-	return false
+	return
 
 
 # --- 角色动画（直挂实例：入队 + 空闲自动播放；wait:true 挂起剧情） ---
@@ -494,52 +477,47 @@ func _char_at(char_idx: int) -> Character:
 
 
 ## 入队并自动播放；wait:true 时挂起剧情直到该实例动画序列完成
-func _char_enqueue(c: Character, step: Array, wait: bool) -> bool:
+##（SKIP/重放中 acquire 短路不挂起；点击打断 = FAST_FORWARD 处置 skip_all 直达终态）
+func _char_enqueue(c: Character, step: Array, wait: bool) -> void:
 	if c == null:
-		return false
+		return
 	c.animation_list.append(step)
 	c.play()
-	# SKIP/重放中不真实等待（与 skip_all/skip_typing 同哲学）
-	if wait and manager_mode != ManagerMode.SKIP and _replay_end < 0:
-		_char_waiting = true
-		c.sequence_finished.connect(_on_char_sequence_finished, CONNECT_ONE_SHOT)
-		return true
-	return false
-
-
-func _on_char_sequence_finished() -> void:
-	if not _char_waiting:
+	if not wait:
 		return
-	_char_waiting = false
-	run_script()
+	var hold := Synchronizer.acquire(&"char", c, func(): c.skip_all())
+	if hold == Synchronizer.INVALID:
+		return
+	# sequence_finished 一次性释放；skip_all 不发该信号（防假唤醒），抢占处置由同步器直接释放
+	c.sequence_finished.connect(func(): Synchronizer.release(hold), CONNECT_ONE_SHOT)
 
 
-func _char_setup(ins: Instruction) -> bool:
+func _char_setup(ins: Instruction) -> void:
 	# 参数: [char_index: int, path: String, x: float, y: float]
 	var c := _char_at(ins.params[0] as int)
 	if c == null:
-		return false
+		return
 	var tex = ResourceManager.load("texture", ins.params[1] as String)
 	if tex == null:
 		GalLogger.error(LOG_TAG, "加载立绘失败: " + (ins.params[1] as String))
-		return false
+		return
 	return _char_enqueue(c, [
 		Character.AnimationType.SETUP, tex, Vector2(ins.params[2] as float, ins.params[3] as float)
 	], false)
 
 
-func _char_show_fade(ins: Instruction) -> bool:
+func _char_show_fade(ins: Instruction) -> void:
 	# 参数: [char_index: int, duration: float, wait: bool]
 	var c := _char_at(ins.params[0] as int)
 	return _char_enqueue(c, [Character.AnimationType.SHOW_FADE, ins.params[1] as float], ins.params[2] as bool)
 
 
-func _char_hide_fade(ins: Instruction) -> bool:
+func _char_hide_fade(ins: Instruction) -> void:
 	var c := _char_at(ins.params[0] as int)
 	return _char_enqueue(c, [Character.AnimationType.HIDE_FADE, ins.params[1] as float], ins.params[2] as bool)
 
 
-func _char_move_to(ins: Instruction) -> bool:
+func _char_move_to(ins: Instruction) -> void:
 	# 参数: [char_index: int, x: float, y: float, duration: float, wait: bool]
 	var c := _char_at(ins.params[0] as int)
 	return _char_enqueue(c, [
@@ -549,19 +527,19 @@ func _char_move_to(ins: Instruction) -> bool:
 	], ins.params[4] as bool)
 
 
-func _char_change_texture(ins: Instruction) -> bool:
+func _char_change_texture(ins: Instruction) -> void:
 	# 参数: [char_index: int, path: String]
 	var c := _char_at(ins.params[0] as int)
 	if c == null:
-		return false
+		return
 	var tex = ResourceManager.load("texture", ins.params[1] as String)
 	if tex == null:
 		GalLogger.error(LOG_TAG, "加载立绘失败: " + (ins.params[1] as String))
-		return false
+		return
 	return _char_enqueue(c, [Character.AnimationType.CHANGE_TEXTURE, tex], false)
 
 
-func _char_wait(ins: Instruction) -> bool:
+func _char_wait(ins: Instruction) -> void:
 	# 参数: [char_index: int, duration: float]（队列内等待，仅正秒）
 	var c := _char_at(ins.params[0] as int)
 	return _char_enqueue(c, [Character.AnimationType.WAIT, ins.params[1] as float], false)
@@ -576,62 +554,51 @@ func _resolve_value(s: String) -> float:
 	return Global.vars.get(s, 0.0)
 
 
-func _var_set(ins: Instruction) -> bool:
+func _var_set(ins: Instruction) -> void:
 	Global.vars[ins.params[0]] = _resolve_value(ins.params[1])
-	return false
 
 
-func _var_add(ins: Instruction) -> bool:
+func _var_add(ins: Instruction) -> void:
 	var key: String = ins.params[0]
 	Global.vars[key] = Global.vars.get(key, 0.0) + _resolve_value(ins.params[1])
-	return false
 
 
-func _var_sub(ins: Instruction) -> bool:
+func _var_sub(ins: Instruction) -> void:
 	var key: String = ins.params[0]
 	Global.vars[key] = Global.vars.get(key, 0.0) - _resolve_value(ins.params[1])
-	return false
 
 
-func _var_mul(ins: Instruction) -> bool:
+func _var_mul(ins: Instruction) -> void:
 	var key: String = ins.params[0]
 	Global.vars[key] = Global.vars.get(key, 0.0) * _resolve_value(ins.params[1])
-	return false
 
 
-func _var_div(ins: Instruction) -> bool:
+func _var_div(ins: Instruction) -> void:
 	var key: String = ins.params[0]
 	var divisor := _resolve_value(ins.params[1])
 	if is_zero_approx(divisor):
 		GalLogger.warn(LOG_TAG, "var 除零，变量保持不变: " + key)
-		return false
+		return
 	Global.vars[key] = Global.vars.get(key, 0.0) / divisor
-	return false
 
 
-func _var_random(ins: Instruction) -> bool:
+func _var_random(ins: Instruction) -> void:
 	# 参数: [key: String, min: float, max: float]；用 Global.rng 保证重放确定性
 	Global.vars[ins.params[0]] = Global.rng.randf_range(ins.params[1] as float, ins.params[2] as float)
-	return false
+	return
 
 
-## 剧情显式等待；SKIP/重放中短路
-func _wait(ins: Instruction) -> bool:
+## 剧情显式等待（SKIP/重放中 acquire 短路；点击打断 = KILL 处置计时器作废）
+func _wait(ins: Instruction) -> void:
 	var duration: float = ins.params[0] as float
-	if duration <= 0.0 or manager_mode == ManagerMode.SKIP or _replay_end >= 0:
-		return false
-	_wait_waiting = true
-	get_tree().create_timer(duration, false).timeout.connect(func():
-		if _wait_waiting:
-			_wait_waiting = false
-			run_script()
-	, CONNECT_ONE_SHOT)
-	return true
+	if duration <= 0.0:
+		return
+	Synchronizer.wait_seconds(duration)
 
 
 # --- 场景挂载与转场（转发 SceneManager，不建平行系统） ---
 
-func _scene_mount(ins: Instruction) -> bool:
+func _scene_mount(ins: Instruction) -> void:
 	# 参数: [type, name, path, time, anim]
 	var scene_type: String = ins.params[0]
 	var scene_name: String = ins.params[1]
@@ -649,10 +616,9 @@ func _scene_mount(ins: Instruction) -> bool:
 		if node is CanvasItem:
 			node.modulate.a = 0.0
 			create_tween().tween_property(node, "modulate:a", 1.0, duration)
-	return false
 
 
-func _scene_unmount(ins: Instruction) -> bool:
+func _scene_unmount(ins: Instruction) -> void:
 	# 参数: [type, name, time, anim, free]
 	var scene_type: String = ins.params[0]
 	var scene_name: String = ins.params[1]
@@ -672,65 +638,58 @@ func _scene_unmount(ins: Instruction) -> bool:
 		, CONNECT_ONE_SHOT)
 	else:
 		SceneManager.unmount({scene_type: {scene_name: ""}}, free)
-	return false
 
 
-func _trans_in(ins: Instruction) -> bool:
-	return _do_transition(ins)
+func _trans_in(ins: Instruction) -> void:
+	_do_transition(ins)
 
 
-func _trans_out(ins: Instruction) -> bool:
-	return _do_transition(ins)
+func _trans_out(ins: Instruction) -> void:
+	_do_transition(ins)
 
 
 ## 参数: [duration, anim, wait]；wait:true 挂起剧情直到转场完成
-func _do_transition(ins: Instruction) -> bool:
+##（SKIP/重放中完全不转场；点击打断 = RELEASE_ASYNC 处置，转场视觉后台播完）
+func _do_transition(ins: Instruction) -> void:
 	var duration: float = ins.params[0] as float
 	var anim: String = ins.params[1] as String
 	var wait: bool = ins.params[2] as bool
 
-	# SKIP/重放中不真实转场
-	if manager_mode == ManagerMode.SKIP or _replay_end >= 0:
-		return false
+	# SKIP/重放中不真实转场（完全跳过，而非仅不等待——重放需快速重建现场）
+	if Synchronizer.mode == Synchronizer.Mode.SKIP:
+		return
 
 	if not is_instance_valid(SceneManager.transition_controller):
 		# 无转场控制器（如 headless 测试环境）：警告且绝不挂起，防死锁
 		GalLogger.warn(LOG_TAG, "trans 指令无转场控制器可用，跳过: " + anim)
-		return false
+		return
 
 	if wait:
-		_trans_waiting = true
-		SceneManager.transition_controller.transition_finished.connect(_on_trans_finished, CONNECT_ONE_SHOT)
-		SceneManager.transition(anim, duration)
-		return true
+		var hold := Synchronizer.acquire(&"trans")
+		if hold != Synchronizer.INVALID:
+			SceneManager.transition_controller.transition_finished.connect(
+				func(): Synchronizer.release(hold), CONNECT_ONE_SHOT)
+			SceneManager.transition(anim, duration)
+			return
 	SceneManager.transition(anim, duration)
-	return false
 
 
-func _on_trans_finished() -> void:
-	if not _trans_waiting:
-		return
-	_trans_waiting = false
-	run_script()
-
-
-func _set_begin_script(ins: Instruction) -> bool:
+func _set_begin_script(ins: Instruction) -> void:
 	# 参数: [script_name: String]
 	var begin_script: String = ins.params[0] as String
 	
 	Global.config["begin_script"] = begin_script
-	return false
 
 
-func _option_begin(ins: Instruction) -> bool:
-	# 参数: [text: String, cond_key/op/value: String]
+func _option_begin(ins: Instruction) -> void:
+	# 参数: [text: String, tokens: Array]
 	# 如果已经在本组选项中（current_option_end_idx 有效），并且还没走到 END，
 	# 说明当前是在其他分支里再次遇到 OPTION，直接跳到本组选项尾部
 	if current_option_end_idx != -1 and idx < current_option_end_idx:
 		idx = current_option_end_idx
 		# 此时 idx 指向 OPTION_END
 		# run_script 下一次循环会处理 OPTION_END，从而重置状态并继续往下
-		return false
+		return
 
 	# 扫描本组选项（含当前 OPTION 自身；带条件的选项求值过滤）
 	var options_text: PackedStringArray = []
@@ -761,7 +720,7 @@ func _option_begin(ins: Instruction) -> bool:
 		GalLogger.warn(LOG_TAG, "选项组条件过滤后为空，跳过整组")
 		if current_option_end_idx != -1:
 			idx = current_option_end_idx
-		return false
+		return
 
 	# 对话框淡出完成后再弹出选项（信号串联，不挂起协程）
 	dialogue_ui.fade_out().finished.connect(func():
@@ -770,13 +729,12 @@ func _option_begin(ins: Instruction) -> bool:
 		})
 		option_ui.show_options(options_text)
 	, CONNECT_ONE_SHOT)
-	_set_manager_mode(ManagerMode.INTERACT)
+	Synchronizer.mode = Synchronizer.Mode.INTERACT
 
-	# 等待玩家选择 / 取消（取消来自读档等外部流程）
-	_option_waiting = true
+	# 选项挂起（SKIP 中也真实挂起——skip_immune）；玩家选择/取消时释放
+	_option_hold = Synchronizer.acquire(&"option")
 	option_ui.option_made.connect(_on_option_made.bind(options_indices), CONNECT_ONE_SHOT)
 	option_ui.canceled.connect(_on_option_canceled, CONNECT_ONE_SHOT)
-	return true  # 选项 UI 接管推进
 
 
 ## 选项条件：tokens 为空 = 无条件（恒真）
@@ -786,39 +744,44 @@ func _option_condition_passed(item: Instruction) -> bool:
 
 
 func _on_option_made(option_index: int, options_indices: Array[int]) -> void:
-	if not _option_waiting:
+	if _option_hold == Synchronizer.INVALID:
 		return
-	_option_waiting = false
+	var hold := _option_hold
+	_option_hold = Synchronizer.INVALID
 	# 跳转到选中的分支开始处
 	idx = options_indices[option_index]
-	run_script()
+	Synchronizer.release(hold)  # holds_cleared 驱动续跑 run_script
 
 
 func _on_option_canceled() -> void:
-	if not _option_waiting:
+	if _option_hold == Synchronizer.INVALID:
 		return
-	_option_waiting = false
+	var hold := _option_hold
+	_option_hold = Synchronizer.INVALID
+	_suspended = false  # 取消不续跑（读档等外部流程接管）
+	Synchronizer.release(hold)
 	GalLogger.info(LOG_TAG, "选择被中断")
 
 
-func _option_end(_ins: Instruction = null) -> bool:
+func _option_end(_ins: Instruction = null) -> void:
 	# 选项结构结束，清除记录
 	current_option_end_idx = -1
-	return false
 
 
-func _jump_script(ins: Instruction) -> bool:
+func _jump_script(ins: Instruction) -> void:
 	# 解包参数: [script_name: String]
 	var key: String = ins.params[0] as String
 	
 	next_script = key
 	next_story()
-	return true
 
 
-func _jump_main_menu(_ins: Instruction = null) -> bool:
+func _jump_main_menu(_ins: Instruction = null) -> void:
 	# 无需参数
-	_set_manager_mode(ManagerMode.INTERACT)
+	_waiting = false
+	_suspended = false
+	_option_hold = Synchronizer.INVALID
+	Synchronizer.reset()  # 清全部挂起与预约计时 + 回 INTERACT
 	current_option_end_idx = -1 # 回到主菜单时清理状态
 	
 	if dialogue_ui.visible:
@@ -832,7 +795,6 @@ func _jump_main_menu(_ins: Instruction = null) -> bool:
 		"ui": {"对话UI": Global.scenes["对话UI"]},
 		"world2d": {"Gal2D": Global.scenes["Gal2D"]}
 	}, 1, 1, false)
-	return true
 
 
 ## 条件求值：后缀记号流栈机（编译期编码见 Instruction.CondTag；分支目标见 params）。
@@ -917,47 +879,43 @@ func _guard_stack_nonempty(what: String, ins: Instruction) -> bool:
 	return false
 
 
-func _if_condition(ins: Instruction) -> bool:
+func _if_condition(ins: Instruction) -> void:
 	# 参数: [tokens: Array, next_target: int]（next_target = 下一分支头或 END_IF，编译期回填）
 	_execution_stack.append(false)
 	if _eval_condition(ins.params[0]):
 		_execution_stack[-1] = true
 	else:
 		idx = ins.params[1]
-	return false
 
 
-func _else_if_condition(ins: Instruction) -> bool:
+func _else_if_condition(ins: Instruction) -> void:
 	# 参数: [tokens: Array, next_target: int, end_target: int]
 	if not _guard_stack_nonempty("ELSE_IF", ins):
-		return false
+		return
 	# 前分支已执行：直接到 END_IF 弹栈（R9 缺陷 1：落点是 END_IF 本身）
 	if _execution_stack[-1] == true:
 		idx = ins.params[2]
-		return false
+		return
 	if _eval_condition(ins.params[0]):
 		_execution_stack[-1] = true
 	else:
 		idx = ins.params[1]
-	return false
 
 
-func _else_condition(ins: Instruction) -> bool:
+func _else_condition(ins: Instruction) -> void:
 	# 参数: [end_target: int]
 	if not _guard_stack_nonempty("ELSE", ins):
-		return false
+		return
 	if _execution_stack[-1] == true:
 		idx = ins.params[0]
-		return false
+		return
 	_execution_stack[-1] = true
-	return false
 
 
-func _end_if_condition(_ins) -> bool:
+func _end_if_condition(_ins) -> void:
 	if not _guard_stack_nonempty("END_IF", _ins):
-		return false
+		return
 	_execution_stack.pop_back()
-	return false
 
 
 func _show_dialogue(dialogue_item: DialogueItem) -> void:
@@ -966,7 +924,7 @@ func _show_dialogue(dialogue_item: DialogueItem) -> void:
 	# 渲染：转义处理 + {var} 插值 + 锚点剥离（锚点索引 = 显示文本字符串索引）
 	var rendered := DialogueRenderer.render(dialogue_item.dialogue, Global.vars)
 	dialogue_ui.show_dialogue(dialogue_item.character, rendered["text"], rendered["anchors"])
-	if manager_mode == ManagerMode.SKIP:
+	if Synchronizer.mode == Synchronizer.Mode.SKIP:
 		dialogue_ui.skip_typing()
 
 
@@ -975,9 +933,10 @@ func load_game(sg: SavedGame):
 		GalLogger.warn(LOG_TAG, "要先存档才能载入")
 		return
 
-	# 清理状态
+	# 清理状态（挂起簿记由 next_story 内的 Synchronizer.reset() 统一清）
 	current_option_end_idx = -1
-	_option_waiting = false
+	_option_hold = Synchronizer.INVALID
+	_suspended = false
 	# execution_stack 不再入档/恢复（R9 缺陷 3：死字段，重放会重建）
 
 	for c in gal_world2d.characters:
@@ -993,5 +952,5 @@ func load_game(sg: SavedGame):
 
 	# 以 SKIP 模式重放到存档点，重建背景/立绘/音乐等现场
 	_replay_end = sg.idx
-	_set_manager_mode(ManagerMode.SKIP)
+	Synchronizer.mode = Synchronizer.Mode.SKIP
 	_advance()
