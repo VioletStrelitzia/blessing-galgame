@@ -387,7 +387,7 @@ func _test_audio() -> void:
 
 	# 双重衰减回归：总线 -6dB 时播放器 volume_db 应 tween 到曲目响度 0dB，不背总线快照
 	AudioServer.set_bus_volume_db(music_bus, -6.0)
-	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm", "0", "true", "0", "1.0"])])
+	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm", "0", "true", "0", "0", "1.0"])])
 	SM.run_script()
 	await process_frame
 	await process_frame
@@ -400,7 +400,7 @@ func _test_audio() -> void:
 	AM.stop_music(0.0)
 	await process_frame
 	await process_frame
-	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm", "0", "true", "0", "0.5"])])
+	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm", "0", "true", "0", "0", "0.5"])])
 	SM.run_script()
 	await process_frame
 	await process_frame
@@ -506,7 +506,7 @@ func _test_audio() -> void:
 	await process_frame
 
 	# music volume 子动作：不重启曲目直接调响度
-	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm", "0", "true", "0", "1.0"])])
+	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm", "0", "true", "0", "0", "1.0"])])
 	SM.run_script()
 	await process_frame
 	await process_frame
@@ -596,6 +596,98 @@ func _test_audio() -> void:
 		if p.playing:
 			any_music2 = true
 	_assert(not any_music2, "music volume 不得掐死进行中的 music stop（F2 回归）")
+
+	# fade_in/fade_out 拆分（v2.2）：快出慢进——旧轨按 fade_out 慢淡出，新轨按 fade_in 快到位
+	AM.play_music(s_cached, 0, 0, 0, true, 1.0)
+	await process_frame
+	await process_frame
+	AM.play_music(s_b, 0, 1.2, 0.1, true, 1.0)  # 旧轨 1.2 秒淡出，新轨 0.1 秒淡入
+	await create_timer(0.4).timeout
+	cur = music_mgr.players[music_mgr.cur_player_index]
+	_assert(absf(cur.volume_db) < 0.01,
+		"fade_in:0.1 后新轨应已到位 0dB，实际 %s" % cur.volume_db)
+	var old_fading := false
+	for p in music_mgr.players:
+		if p != cur and p.playing and p.volume_db > -80.0:
+			old_fading = true
+	_assert(old_fading, "fade_out:1.2 的旧轨应仍在淡出中（未停止）")
+	await create_timer(1.0).timeout  # 等旧轨淡出收尾，避免残留 tween 污染后续用例
+
+	# DSL 通路参数槽位：fade_in 立即 + volume:0.6 落盘（槽位错位则 volume 落为默认 1.0）
+	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm", "0", "true", "0", "3.0", "0.6"])])
+	SM.run_script()
+	await process_frame
+	await process_frame
+	cur = music_mgr.players[music_mgr.cur_player_index]
+	_assert(absf(cur.volume_db - linear_to_db(0.6)) < 0.01,
+		"music fade_in:0 volume:0.6 应落盘（槽位校验），实际 %s" % cur.volume_db)
+	AM.stop_music(0.0)
+	await process_frame
+	await process_frame
+
+	# DSL 通路真实双 BGM 交叉淡变（demo_bgm → demo_bgm_2，快出慢进）
+	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm", "0", "true", "0", "0", "1.0"])])
+	SM.run_script()
+	await process_frame
+	await process_frame
+	var s2 = root.get_node("ResourceManager").load("audio", "demo_bgm_2")
+	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm_2", "0", "true", "0.1", "1.0", "1.0"])])
+	SM.run_script()
+	await create_timer(0.3).timeout
+	cur = music_mgr.players[music_mgr.cur_player_index]
+	_assert(cur.stream == s2 and absf(cur.volume_db) < 0.01,
+		"新轨 demo_bgm_2 fade_in:0.1 应已到位 0dB，实际 %s" % cur.volume_db)
+	var old_alive := false
+	for p in music_mgr.players:
+		if p != cur and p.playing and p.stream == s_cached:
+			old_alive = true
+	_assert(old_alive, "旧轨 demo_bgm 应在 fade_out:1.0 淡出中（双轨同时在播 = 真交叉淡变）")
+	AM.stop_music(0.0)
+	await create_timer(0.9).timeout  # 等旧轨淡出收尾，避免残留 tween 污染后续用例
+
+	# sfx volume（v2.2）：按流身份调在播音效响度；淡出停止中的轨不被匹配
+	_load_seq([_ins(Instruction.Head.SFX_PLAY, ["demo_bgm", "0", "1.0", "true"])])
+	SM.run_script()
+	await process_frame
+	_load_seq([_ins(Instruction.Head.SFX_VOLUME, ["demo_bgm", "0.3", "0"])])
+	SM.run_script()
+	await process_frame
+	var sfx_p: AudioStreamPlayer = null
+	for p in sfx_mgr.players:
+		if p.playing:
+			sfx_p = p
+	_assert(sfx_p != null and absf(sfx_p.volume_db - linear_to_db(0.3)) < 0.01,
+		"sfx volume 0.3 应落盘，实际 %s" % (sfx_p.volume_db if sfx_p else "无在播"))
+	_load_seq([_ins(Instruction.Head.SFX_VOLUME, ["demo_bgm", "1.0", "0.2"])])
+	SM.run_script()
+	await create_timer(0.4).timeout
+	_assert(sfx_p.playing and absf(sfx_p.volume_db) < 0.01,
+		"sfx volume fade:0.2 渐变后应回到 0dB 且不中断播放，实际 %s" % sfx_p.volume_db)
+	_load_seq([_ins(Instruction.Head.SFX_STOP, ["demo_bgm", "0.3"])])
+	SM.run_script()
+	_load_seq([_ins(Instruction.Head.SFX_VOLUME, ["demo_bgm", "0.9", "0"])])
+	SM.run_script()
+	await create_timer(0.5).timeout
+	_assert(not sfx_p.playing, "sfx stop 淡出中的轨不应被 sfx volume 匹配（身份已擦除）")
+
+	# AUTO 等语音播完（v2.2）：推进时机 = max(打字完成, 语音播完) + auto_wait_time
+	var saved_wait: float = G.auto_wait_time
+	G.auto_wait_time = 0.3
+	_load_seq([_prev(Instruction.Head.VOICE_PLAY, ["demo_bgm", "2.0", "1.0"]), _dlg("第一句"), _dlg("第二句")])
+	SM._set_manager_mode(1)  # AUTO
+	SM.run_script()  # 前指令起播语音（余 ~4 秒）→ 停在第一句
+	SM.dialogue_ui.skip_typing()  # 打字完成 → 布置触发器（语音在播 → 等 voice_finished）
+	var idx_after_arm: int = SM.idx
+	await create_timer(1.0).timeout  # 远超 auto_wait_time，但语音远未播完
+	_assert(SM.idx == idx_after_arm, "语音在播时 AUTO 不得按 auto_wait_time 提前推进")
+	AM.play_voice(s_cached, 5.7, 1.0)  # 换余 ~0.3 秒的语音，自然播完触发 voice_finished
+	await create_timer(0.5).timeout
+	_assert(SM.idx == idx_after_arm, "voice_finished 后未满 auto_wait_time 不应推进")
+	await create_timer(0.6).timeout
+	_assert(SM.idx != idx_after_arm, "voice_finished + auto_wait_time 后应推进")
+	SM._set_manager_mode(0)  # 还原 INTERACT
+	G.auto_wait_time = saved_wait
+	AM.stop_voice(0.0)
 
 	# 门面音量读写按名称解析总线（与设置 UI 同路径）
 	AM.set_volume_db(1, -9.0)

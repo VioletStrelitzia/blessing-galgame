@@ -1,6 +1,7 @@
 {
 	"audio": {
-		"demo_bgm": "Resources/audio/demo_bgm.wav"
+		"demo_bgm": "Resources/audio/demo_bgm.wav",
+		"demo_bgm_2": "Resources/audio/demo_bgm_2.wav"
 	},
 	"texture": {
 		"demo_stage": "Resources/image/生成电影概念图.png",

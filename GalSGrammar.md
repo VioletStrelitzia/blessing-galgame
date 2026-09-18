@@ -26,6 +26,7 @@
 - **前指令（`<`）**：跟随**下一句**对话——等待用户点击推进才执行（玩家停留在上一句期间不执行）。
 - **后指令（`>`）**：跟随**上一句**对话——打字完成立即执行，不等点击。
 - **独立指令（无前缀）**：不绑定任何对话——不等待用户交互，执行流到达即执行。书写位置决定具体时机：写在后指令区随打字完成执行，写在前指令区随点击推进执行。`var`、`wait`、不绑定对话的 `bg`/`music` 是独立指令的典型用例。
+- AUTO 模式的推进时机为 **max(打字完成, 语音播完) + `auto_wait_time`**（BGalS v2.2 起），语音不再被自动播放切断；SKIP 不受此约束。
 
 ## 剧本的编译与加载
 
@@ -101,17 +102,19 @@ BGalS 逐行解析，一行一个语句。行分类按以下优先级判定（�
 
 | 指令 | 参数（默认值） | 说明 |
 | --- | --- | --- |
-| `music <引用>` | `[from:秒=0]` `[loop:bool=true]` `[fade:秒=1.0]` `[volume:0~1=1.0]` | 播放 BGM（双播放器交叉淡变；loop 为流内循环，无缝）。 |
+| `music <引用>` | `[from:秒=0]` `[loop:bool=true]` `[fade:秒=1.0]` `[fade_in:秒]` `[fade_out:秒]` `[volume:0~1=1.0]` | 播放 BGM（双播放器交叉淡变；loop 为流内循环，无缝）。`fade:` 是双侧简写，`fade_in:`/`fade_out:` 显式覆盖对应侧（如 `fade_out:0.2 fade_in:2` 快出慢进）。 |
 | `music stop` | `[fade:秒=1.0]` | 停止（淡出）。 |
 | `music pause` / `music resume` | 无 | 暂停 / 恢复（作用于所有在播音轨）。 |
 | `music volume <0~1>` | `[fade:秒=0.5]` | 调节在播音轨响度，不重启曲目（进入紧张桥段压低 BGM 等）。 |
 | `sfx <引用>` | `[from:秒=0]` `[volume:0~1=1.0]` `[loop:bool=false]` | 音效（播放器池，空闲优先分配，可重叠）；`loop:true` 用于环境音。 |
 | `sfx stop` | `[引用=全部]` `[fade:秒=0.3]` | 停止指定音效（淡出）；省略引用则停止全部 SFX。 |
+| `sfx volume <引用> <0~1>` | `[fade:秒=0.3]` | 调节在播指定音效的响度，不中断播放（环境音渐强渐弱）。 |
 | `voice <引用>` | `[from:秒=0]` `[volume:0~1=1.0]` | 语音（单播放器，推进对话自动停止）。 |
 | `voice stop` | `[fade:秒=0.1]` | 停止当前语音。 |
 
 - `volume` 为线性 0~1（与设置界面滑条同口径），表示曲目自身响度，与设置里的总线音量正交相乘。
-- 保留子动作名：`music` 为 `stop`/`pause`/`resume`/`volume`，`sfx`/`voice` 为 `stop`；资源引用名请避开这些词。
+- 保留子动作名：`music` 为 `stop`/`pause`/`resume`/`volume`，`sfx` 为 `stop`/`volume`，`voice` 为 `stop`/`volume`；资源引用名请避开这些词。
+- 语音不设逐句调音（`voice volume` 编译期报错）：逐句响度统一属制作期职责，应在音频管线做响度归一；全局调节用设置里的语音总线。设计规则详见 `docs/未来开发设计.md` 阶段七。
 - 同曲重发 `music <同一引用>` 不应用新参数（同曲守卫）；调在播曲目响度用 `music volume`。
 - 同一音频引用不要以不同 `loop` 语义并发使用（如 `music x loop:true` 与 `sfx x` 同发）——流资源是共享缓存，loop 标志会互踩；`loop:` 对 `AudioStreamInteractive`/`AudioStreamRandomizer` 等复合流无效（循环由资源自身控制）。
 - 需要「前奏 → 循环段」式无缝 BGM 时，使用 Godot 的 `AudioStreamInteractive` 资源（经 `index.json` 登记后按普通引用播放），无需 DSL 介入。

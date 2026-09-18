@@ -7,7 +7,7 @@ enum Head {
 	BLANK,  ## 反序列化占位，编译器不产生
 
 	# [音频指令]
-	MUSIC_PLAY,    			# music <path> [from:秒] [loop:bool] [fade:秒] [volume:0~1]
+	MUSIC_PLAY,    			# music <path> [from:秒] [loop:bool] [fade:秒] [fade_in:秒] [fade_out:秒] [volume:0~1]
 	MUSIC_PAUSE,    		# music pause
 	MUSIC_RESUME,   		# music resume
 	MUSIC_STOP,     		# music stop [fade:秒]
@@ -61,6 +61,9 @@ enum Head {
 	VOICE_STOP, 			# voice stop [fade:秒]
 	SFX_STOP,   			# sfx stop [引用] [fade:秒]（引用省略 = 停止全部）
 	MUSIC_VOLUME,   		# music volume <0~1> [fade:秒]（调节在播音轨响度，不重启曲目）
+
+	# [音频指令·v2.2 追加]
+	SFX_VOLUME, 			# sfx volume <引用> <0~1> [fade:秒]（调节在播音效响度，不中断播放）
 }
 
 @export var head: Head
@@ -70,13 +73,14 @@ func _init(head_: Head = Head.BLANK, args: Array[String] = []) -> void:
 	head = head_
 
 	match head_:
-		# 参数: [path: String, from: float, loop: bool, fade: float, volume: float]
+		# 参数: [path: String, from: float, loop: bool, fade_in: float, fade_out: float, volume: float]
 		Head.MUSIC_PLAY:
 			params.append(_arg_str(args, 0, ""))
 			params.append(_arg_float(args, 1, 0.0))
 			params.append(_arg_bool(args, 2, true))
 			params.append(_arg_float(args, 3, 1.0))
 			params.append(_arg_float(args, 4, 1.0))
+			params.append(_arg_float(args, 5, 1.0))
 
 		# 参数: [fade: float]
 		Head.MUSIC_STOP:
@@ -234,6 +238,12 @@ func _init(head_: Head = Head.BLANK, args: Array[String] = []) -> void:
 		Head.MUSIC_VOLUME:
 			params.append(_arg_float(args, 0, 1.0))
 			params.append(_arg_float(args, 1, 0.5))
+
+		# 参数: [ref: String, volume: float, fade: float]
+		Head.SFX_VOLUME:
+			params.append(_arg_str(args, 0, ""))
+			params.append(_arg_float(args, 1, 1.0))
+			params.append(_arg_float(args, 2, 0.3))
 
 
 func _arg_str(args: Array[String], idx: int, default: String = "") -> String:

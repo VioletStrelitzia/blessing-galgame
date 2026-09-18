@@ -17,7 +17,7 @@ const BUS_NAMES: Dictionary = {
 	Bus.VOICE: "Voice",
 }
 
-## 语音播放完成（转发自 VoiceManager，为「AUTO 等语音播完」预留）
+## 语音播放完成（转发自 VoiceManager，供 AUTO 等语音播完使用）
 signal voice_finished
 
 @onready var music_manager: MusicAudioPlayerManager = $MusicManager
@@ -91,6 +91,11 @@ func stop_all_sfx(fade: float = 0.3) -> void:
 	sfx_manager.stop_all(fade)
 
 
+## 按流身份匹配调节在播音效响度（线性 0~1，不中断播放）；fade > 0 时渐变
+func set_sfx_volume(audio: AudioStream, volume: float, fade: float = 0.3) -> void:
+	sfx_manager.set_volume(audio, volume, fade)
+
+
 func play_voice(audio: AudioStream, from_position: float = 0.0, volume: float = 1.0) -> void:
 	voice_manager.play(audio, from_position, volume)
 
@@ -98,6 +103,11 @@ func play_voice(audio: AudioStream, from_position: float = 0.0, volume: float = 
 ## fade <= 0 硬停
 func stop_voice(fade: float = 0.1) -> void:
 	voice_manager.stop(fade)
+
+
+## 语音是否在发声（淡出停止中视为不在播；AUTO 等语音播完的判定依据）
+func is_voice_playing() -> bool:
+	return voice_manager.is_playing()
 
 
 ## 设置总线音量（线性 0~1）

@@ -4,7 +4,7 @@ const LOG_TAG := "Importer"
 ## BGalS v2 编译前端：行分类 → 缩进块拍平 → 线性 GalEventItemSequence。
 ## 产物中 基类 Instruction = 独立指令，PrevInstruction/PostInstruction = 前/后指令。
 
-const COMPILER_VERSION := "bgals2.1"
+const COMPILER_VERSION := "bgals2.2"
 
 var check: bool = true
 var read_dir: String = "res://scripts"
@@ -424,25 +424,29 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 						if not kv["pos"].is_empty():
 							return _fail(diags, file, line_no, "music " + sub + " 不接受位置参数")
 						return Instruction.new(Instruction.Head.MUSIC_PAUSE if sub == "pause" else Instruction.Head.MUSIC_RESUME)
-			var kv := _parse_kv(rest, ["from", "loop", "fade", "volume"], diags, file, line_no)
+			var kv := _parse_kv(rest, ["from", "loop", "fade", "fade_in", "fade_out", "volume"], diags, file, line_no)
 			if kv["pos"].is_empty():
 				return _fail(diags, file, line_no, "music 缺少音乐引用名")
 			if kv["pos"].size() > 1:
 				return _fail(diags, file, line_no, "music 只接受一个位置参数（引用名），多余: " + " ".join(kv["pos"].slice(1)))
 			var from_str: String = kv["kv"].get("from", "0")
 			var loop_str: String = kv["kv"].get("loop", "true")
-			var fade_str: String = kv["kv"].get("fade", "1.0")
+			# fade 为 fade_in/fade_out 的简写（双侧同值）；显式键覆盖对应侧，可写「快出慢进」
+			var fade_in_str: String = kv["kv"].get("fade_in", kv["kv"].get("fade", "1.0"))
+			var fade_out_str: String = kv["kv"].get("fade_out", kv["kv"].get("fade", "1.0"))
 			var volume_str: String = kv["kv"].get("volume", "1.0")
 			if not _check_float(from_str, "music from", diags, file, line_no):
 				return null
 			if not _check_bool(loop_str, "music loop", diags, file, line_no):
 				return null
-			if not _check_float(fade_str, "music fade", diags, file, line_no):
+			if not _check_float(fade_in_str, "music fade_in", diags, file, line_no):
+				return null
+			if not _check_float(fade_out_str, "music fade_out", diags, file, line_no):
 				return null
 			if not _check_volume(volume_str, "music volume", diags, file, line_no):
 				return null
 			return Instruction.new(Instruction.Head.MUSIC_PLAY, [
-				kv["pos"][0], from_str, loop_str, fade_str, volume_str,
+				kv["pos"][0], from_str, loop_str, fade_in_str, fade_out_str, volume_str,
 			])
 		"sfx", "voice":
 			# stop 子动作：sfx stop [引用]（省略 = 停止全部）；voice stop（单播放器无需引用）
@@ -458,6 +462,21 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 				if stop_kv["pos"].size() > 1:
 					return _fail(diags, file, line_no, "sfx stop 至多一个引用参数")
 				return Instruction.new(Instruction.Head.SFX_STOP, [stop_kv["pos"][0] if stop_kv["pos"].size() == 1 else "", stop_fade])
+			# volume 子动作：仅 sfx（语音响度在制作期归一，voice 无此子动作——见 docs/未来开发设计.md 音频设计规则）
+			if rest.size() > 0 and rest[0] == "volume":
+				if key == "voice":
+					return _fail(diags, file, line_no, "voice 不支持 volume 子动作（语音响度请在制作期归一；全局调节用语音总线）")
+				var vol_kv := _parse_kv(rest.slice(1), ["fade"], diags, file, line_no)
+				if vol_kv["pos"].size() < 2:
+					return _fail(diags, file, line_no, "sfx volume 需要 <引用> <0~1> 两个位置参数")
+				if vol_kv["pos"].size() > 2:
+					return _fail(diags, file, line_no, "sfx volume 只接受两个位置参数（引用 音量），多余: " + " ".join(vol_kv["pos"].slice(2)))
+				if not _check_volume(vol_kv["pos"][1], "sfx volume", diags, file, line_no):
+					return null
+				var sfx_vol_fade: String = vol_kv["kv"].get("fade", "0.3")
+				if not _check_float(sfx_vol_fade, "sfx volume fade", diags, file, line_no):
+					return null
+				return Instruction.new(Instruction.Head.SFX_VOLUME, [vol_kv["pos"][0], vol_kv["pos"][1], sfx_vol_fade])
 			var kv := _parse_kv(rest, ["from", "volume", "loop"] if key == "sfx" else ["from", "volume"], diags, file, line_no)
 			if kv["pos"].is_empty():
 				return _fail(diags, file, line_no, key + " 缺少音频引用名")

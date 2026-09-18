@@ -1,7 +1,8 @@
 // ============================================
 // Blessing Galgame Engine —— 演示剧本 3（BGalS v2）
 // 演示：scene mount/unmount、trans 转场、wait 等待、char wait:true、
-//       v2.1 音频（sfx loop 环境音、music volume、sfx stop）
+//       v2.1/v2.2 音频（sfx loop 环境音、music volume、sfx stop、
+//       fade_in/fade_out 交叉淡变拆分、sfx volume）
 // ============================================
 
 bg demo_stage
@@ -31,6 +32,14 @@ music volume 0.4 fade:0.8
 sfx stop demo_bgm fade:0.5
 music volume 1.0 fade:0.8
 引路人: 环境音停止，BGM 恢复全量。
+
+// v2.2 音频：交叉淡变「快出慢进」（fade_in/fade_out 拆分）、在播音效调音量（渐强不中断）
+music demo_bgm_2 fade_out:0.3 fade_in:2.0
+引路人: 旧曲快退、新曲缓缓漫上来——fade_in 与 fade_out 分开控制的交叉淡变。
+sfx demo_bgm volume:0.15 loop:true
+sfx volume demo_bgm 0.4 fade:1.5
+引路人: 环境音渐渐变响了——sfx volume 不中断播放地调节在播音效响度。
+sfx stop demo_bgm fade:0.5
 
 // char wait:true：等立绘移动完成才继续
 char 0 setup demo_char_a 0.3,0.95
