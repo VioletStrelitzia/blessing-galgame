@@ -396,6 +396,14 @@ static func _wrap_timing(sub: Instruction, src: Instruction) -> Instruction:
 ## known_scripts 非空时校验 jump/begin 目标（仅警告）；char_max >= 0 时校验 char 实例索引（报错）；
 ## known_refs 非空时校验资源引用（仅警告，模组可提供资源）。
 static func parse_instruction_line(content: String, diags: Array[Dictionary] = [], file: String = "", line_no: int = 0, known_scripts: Array[String] = [], char_max: int = -1, known_refs: Dictionary = {}) -> Instruction:
+	var ins := _parse_instruction_line_inner(content, diags, file, line_no, known_scripts, char_max, known_refs)
+	if ins != null:
+		_validate_param_roles(ins, known_scripts, known_refs, diags, file, line_no)
+	return ins
+
+
+## 内层：指令解析主体（角色校验由 parse_instruction_line 包装统一进行）
+static func _parse_instruction_line_inner(content: String, diags: Array[Dictionary], file: String, line_no: int, known_scripts: Array[String], char_max: int, known_refs: Dictionary) -> Instruction:
 	var args := _split_cli_args(content)
 	if args.is_empty():
 		return null
@@ -407,7 +415,6 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 			var kv := _parse_kv(rest, ["time"], diags, file, line_no)
 			if kv["pos"].size() < 1:
 				return _fail(diags, file, line_no, "bg 缺少背景引用名")
-			_warn_unknown_ref(known_refs, "texture", kv["pos"][0], "bg", diags, file, line_no)
 			var bg_time: String = kv["kv"].get("time", "0")
 			if not _check_float(bg_time, "bg time", diags, file, line_no):
 				return null
@@ -445,7 +452,6 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 				return _fail(diags, file, line_no, "music 缺少音乐引用名")
 			if kv["pos"].size() > 1:
 				return _fail(diags, file, line_no, "music 只接受一个位置参数（引用名），多余: " + " ".join(kv["pos"].slice(1)))
-			_warn_unknown_ref(known_refs, "audio", kv["pos"][0], "music", diags, file, line_no)
 			var from_str: String = kv["kv"].get("from", "0")
 			var loop_str: String = kv["kv"].get("loop", "true")
 			# fade 为 fade_in/fade_out 的简写（双侧同值）；显式键覆盖对应侧，可写「快出慢进」
@@ -478,8 +484,6 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 					return Instruction.from_strings(Instruction.Head.VOICE_STOP, [stop_fade])
 				if stop_kv["pos"].size() > 1:
 					return _fail(diags, file, line_no, "sfx stop 至多一个引用参数")
-				if stop_kv["pos"].size() == 1:
-					_warn_unknown_ref(known_refs, "audio", stop_kv["pos"][0], "sfx stop", diags, file, line_no)
 				return Instruction.from_strings(Instruction.Head.SFX_STOP, [stop_kv["pos"][0] if stop_kv["pos"].size() == 1 else "", stop_fade])
 			# volume 子动作：仅 sfx（语音响度在制作期归一，voice 无此子动作——见 docs/未来开发设计.md 音频设计规则）
 			if rest.size() > 0 and rest[0] == "volume":
@@ -492,7 +496,6 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 					return _fail(diags, file, line_no, "sfx volume 只接受两个位置参数（引用 音量），多余: " + " ".join(vol_kv["pos"].slice(2)))
 				if not _check_volume(vol_kv["pos"][1], "sfx volume", diags, file, line_no):
 					return null
-				_warn_unknown_ref(known_refs, "audio", vol_kv["pos"][0], "sfx volume", diags, file, line_no)
 				var sfx_vol_fade: String = vol_kv["kv"].get("fade", "0.3")
 				if not _check_float(sfx_vol_fade, "sfx volume fade", diags, file, line_no):
 					return null
@@ -502,7 +505,6 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 				return _fail(diags, file, line_no, key + " 缺少音频引用名")
 			if kv["pos"].size() > 1:
 				return _fail(diags, file, line_no, key + " 只接受一个位置参数（引用名），多余: " + " ".join(kv["pos"].slice(1)))
-			_warn_unknown_ref(known_refs, "audio", kv["pos"][0], key, diags, file, line_no)
 			var from_str: String = kv["kv"].get("from", "0")
 			var volume_str: String = kv["kv"].get("volume", "1.0")
 			if not _check_float(from_str, key + " from", diags, file, line_no):
@@ -524,12 +526,10 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 				return _fail(diags, file, line_no, "jump 缺少目标剧本名")
 			if rest[0] == "main_menu":
 				return Instruction.new(Instruction.Head.JUMP_MAIN_MENU)
-			_warn_unknown_script(known_scripts, rest[0], "jump", diags, file, line_no)
 			return Instruction.from_strings(Instruction.Head.JUMP_SCRIPT, [rest[0]])
 		"begin":
 			if rest.is_empty():
 				return _fail(diags, file, line_no, "begin 缺少剧本名")
-			_warn_unknown_script(known_scripts, rest[0], "begin", diags, file, line_no)
 			return Instruction.from_strings(Instruction.Head.SET_BEGIN_SCRIPT, [rest[0]])
 		"wait":
 			if rest.is_empty():
@@ -555,6 +555,34 @@ static func _warn_unknown_script(known_scripts: Array[String], target: String, c
 		return
 	_diagnose_static(diags, file, line_no, "warning",
 		"%s 目标剧本不在编译目录中: %s（若由模组提供可忽略）" % [cmd, target])
+
+
+## 参数语义角色通用校验（spec 驱动）：新增引用类参数只需在 _SPEC 标注 role，零新校验代码。
+## 未知角色不校验（仅作 schema 元数据供工具链使用）。
+static func _validate_param_roles(ins: Instruction, known_scripts: Array[String], known_refs: Dictionary, diags: Array[Dictionary], file: String, line_no: int) -> void:
+	var spec: Array = Instruction._SPEC.get(ins.head, [])
+	for i in mini(ins.params.size(), spec.size()):
+		var role := StringName(spec[i][3])
+		if role == &"":
+			continue
+		var value: Variant = ins.params[i]
+		if not (value is String) or (value as String).is_empty():
+			continue
+		var v := value as String
+		var where: String = Instruction.Head.keys()[ins.head] + " 的参数 " + spec[i][0]
+		match role:
+			&"audio", &"texture":
+				_warn_unknown_ref(known_refs, role, v, where, diags, file, line_no)
+			&"script":
+				_warn_unknown_script(known_scripts, v, where, diags, file, line_no)
+			&"res_path":
+				if not ResourceLoader.exists(v):
+					_diagnose_static(diags, file, line_no, "warning", "路径不存在: %s（%s；若由模组提供可忽略）" % [v, where])
+			&"scene_type":
+				if v != "world2d" and v != "ui":
+					_diagnose_static(diags, file, line_no, "warning", "未知场景类型: %s（%s；应为 world2d/ui）" % [v, where])
+			_:
+				pass  # 未知角色：仅元数据
 
 
 ## 资源引用编译期校验：known_refs 非空时对照 index.json 登记表。
@@ -645,7 +673,6 @@ static func _parse_char(rest: Array[String], diags: Array[Dictionary], file: Str
 		"setup":
 			if tail.size() < 2:
 				return _fail(diags, file, line_no, "char setup 需要 <立绘> <x,y>（逗号后无空格）")
-			_warn_unknown_ref(known_refs, "texture", tail[0], "char setup", diags, file, line_no)
 			var xy := _parse_xy(tail[1], diags, file, line_no)
 			if xy.is_empty():
 				return null
@@ -677,7 +704,6 @@ static func _parse_char(rest: Array[String], diags: Array[Dictionary], file: Str
 		"texture":
 			if tail.is_empty():
 				return _fail(diags, file, line_no, "char texture 缺少立绘引用名")
-			_warn_unknown_ref(known_refs, "texture", tail[0], "char texture", diags, file, line_no)
 			return Instruction.from_strings(Instruction.Head.CHAR_CHANGE_TEXTURE, [idx, tail[0]])
 		"wait":
 			if tail.is_empty():
@@ -746,10 +772,6 @@ static func _parse_scene(rest: Array[String], diags: Array[Dictionary], file: St
 			var kv := _parse_kv(tail, ["time", "anim"], diags, file, line_no)
 			if kv["pos"].size() < 3:
 				return _fail(diags, file, line_no, "scene mount 需要 <类型> <名称> <路径>")
-			# 场景路径存在性校验（仅警告——模组 PCK 可提供登记表之外的场景）
-			if not ResourceLoader.exists(kv["pos"][2]):
-				_diagnose_static(diags, file, line_no, "warning",
-					"scene mount 路径不存在: %s（若由模组提供可忽略）" % kv["pos"][2])
 			return Instruction.from_strings(Instruction.Head.SCENE_MOUNT, [
 				kv["pos"][0], kv["pos"][1], kv["pos"][2],
 				kv["kv"].get("time", "0"), kv["kv"].get("anim", "fade"),
