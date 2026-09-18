@@ -278,6 +278,18 @@ func _init() -> void:
 	DialogueImporter.parse_script(PackedStringArray(["music ghost", "bg ghost"]), "test", no_ref_diags)
 	ok = _assert(no_ref_diags.is_empty(), "不注入登记表时不应产生引用诊断: %s" % [no_ref_diags]) and ok
 
+	# 35. 说话者分隔冒号不得吃锚点内的修饰键冒号（[sfx rain volume:0.5] 等）
+	var colon_seq := DialogueImporter.parse_script(PackedStringArray([
+		"演[char 0 show time:0.5 wait:true]出",   # 旁白（无说话者）：锚点含冒号
+		"引路人: 台词[sfx rain volume:0.5]尾",     # 说话者行：分隔在第一个冒号
+	]), "test", no_ref_diags)
+	var d0 := colon_seq.seq[0] as DialogueItem
+	var d1 := colon_seq.seq[1] as DialogueItem
+	ok = _assert(d0.character == "" and d0.dialogue == "演[char 0 show time:0.5 wait:true]出",
+		"旁白行锚点内冒号不得触发说话者分隔，实际 speaker=%s content=%s" % [d0.character, d0.dialogue]) and ok
+	ok = _assert(d1.character == "引路人" and d1.dialogue == "台词[sfx rain volume:0.5]尾",
+		"说话者行应在首个冒号分隔，实际 speaker=%s content=%s" % [d1.character, d1.dialogue]) and ok
+
 	print("DIAGNOSTICS_TEST_DONE ok=", ok)
 	quit(0 if ok else 1)
 

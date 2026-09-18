@@ -133,6 +133,8 @@
 
 **进展（BGalS v2）**：缺陷 1 已修复（`_jump_to_end_of_structure` 落点改为 END_IF 本身，弹栈正常执行）；缺陷 2 由编译期配对校验消除（v2 缩进块语法下孤立 elif/else 在导入期即报错）；缺陷 3 已关闭（`execution_stack` 字段从 `SavedGame` 移除，读档不再恢复，重放重建）。剩余的结构性改进（跳转表导入期编译、状态机显式化、R2 合流）待后续。
 
+**进展（2026-09-18，解释器核心大重构）**：R9 的结构性遗留全部关闭——条件分支目标在编译期回填进指令参数（运行时跳转表删除）；选项组结构同样编译期回填（`current_option_end_idx` 与运行时扫描删除）；`ManagerMode` 与五挂起旗标收编进新 Autoload `Synchronizer`（挂起注册表 + 优先级抢占 + 推进门闸），`execute()` 返回值停止协议消解为结构判停；指令参数类型化（`_SPEC` 表），`_params_to_strings` 回环删除。
+
 **已核验缺陷**：
 
 1. **执行栈泄漏**：`_jump_to_end_of_structure()` 把 `idx` 直接送到 `END_IF` 之后，`END_IF` 的弹栈处理器不执行——只要结构是 `if`–`elif`/`else` 且某分支命中，`_execution_stack` 每次执行泄漏一格；该栈还随 `SavedGame.execution_stack` 写入存档，冗余被固化。

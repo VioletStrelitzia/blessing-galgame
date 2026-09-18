@@ -44,6 +44,7 @@ var _kinds: Dictionary = {}
 var _holds: Dictionary = {}
 var _next_id := 0
 var _gate_blocked := false  # holds_cleared 只在「被堵 → 清空」跃迁时发射
+var _preempting := false    # 抢占处置进行中：抑制 holds_cleared 发射（恢复由抢占调用方驱动，防双重续跑）
 
 
 func _ready() -> void:
@@ -115,7 +116,9 @@ func wait_seconds(seconds: float, kind := &"wait", tag: Variant = null) -> int:
 
 
 ## 抢占：优先级数 >= 类别阈值的未决挂起按注册处置方式处理并释放；不足的自然存活
+## 处置期间抑制 holds_cleared 发射——恢复由抢占调用方驱动（request_advance/模式切换），防双重续跑
 func preempt(priority: int) -> void:
+	_preempting = true
 	for id in _holds.keys():
 		if not _holds.has(id):
 			continue
@@ -134,6 +137,7 @@ func preempt(priority: int) -> void:
 				pass
 		hold["resolved"] = true
 	_cascade()
+	_preempting = false
 
 
 ## 按类别强制清空（模式切换作废旧预约计时用）
@@ -205,21 +209,19 @@ func _pending_gate_count() -> int:
 	return n
 
 
-## 收敛：resolved 且 deps 全清空的挂起移除（可级联），随后维护门闸跃迁信号
+## 收敛：移除「已 resolved」或「deps 全清空」（屏障语义：依赖达成即完成）的挂起（可级联）
 func _cascade() -> void:
 	var changed := true
 	while changed:
 		changed = false
 		for id in _holds.keys():
 			var hold: Dictionary = _holds[id]
-			if not hold["resolved"]:
-				continue
 			var deps_done := true
 			for d in hold["deps"]:
 				if _holds.has(d):
 					deps_done = false
 					break
-			if deps_done:
+			if hold["resolved"] or (not (hold["deps"] as Array).is_empty() and deps_done):
 				_holds.erase(id)
 				changed = true
 	_update_gate()
@@ -231,4 +233,5 @@ func _update_gate() -> void:
 		_gate_blocked = true
 	elif _gate_blocked:
 		_gate_blocked = false
-		holds_cleared.emit()
+		if not _preempting:
+			holds_cleared.emit()

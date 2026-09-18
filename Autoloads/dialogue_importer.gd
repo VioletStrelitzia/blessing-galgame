@@ -1056,14 +1056,31 @@ static func _emit_dialogue(text: String, seq: Array[GalEventItem], diags: Array[
 
 	var speaker := ""
 	var content := text
-	var colon_index := text.find(":")
-	if colon_index == -1:
-		colon_index = text.find("：")
+	var colon_index := _find_speaker_colon(text)
 	if colon_index != -1:
 		speaker = text.substr(0, colon_index).strip_edges()
 		content = text.substr(colon_index + 1).strip_edges()
 
 	seq.append(DialogueItem.new(speaker, content))
+
+
+## 说话者分隔冒号：取首个不在 [...] 内的半角/全角冒号（锚点修饰键含冒号，如 [sfx rain volume:0.5]）
+static func _find_speaker_colon(text: String) -> int:
+	var in_bracket := false
+	var i := 0
+	while i < text.length():
+		var c := text[i]
+		if c == "\\":  # 转义字符跳过下一字符（\[ 不进入括号态）
+			i += 2
+			continue
+		if c == "[":
+			in_bracket = true
+		elif c == "]":
+			in_bracket = false
+		elif (c == ":" or c == "：") and not in_bracket:
+			return i
+		i += 1
+	return -1
 
 
 ## 锚点校验（不剥离）：白名单指令名 + 定界符判定，禁止流程指令；char 实例索引随 char_max、资源引用随 known_refs 一并校验

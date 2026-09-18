@@ -142,9 +142,14 @@ func on_change_skip() -> void:
 		Synchronizer.mode = Synchronizer.Mode.INTERACT
 	else:
 		Synchronizer.mode = Synchronizer.Mode.SKIP
-		# 进入跳过：按处置矩阵清理回合内挂起（角色直达终态、等待/语音终止、转场后台播完、选项保留）
+		# 进入跳过：按优先级抢占清理回合内挂起（角色直达终态、等待/语音终止、转场后台播完、选项保留）
 		Synchronizer.preempt(Synchronizer.PRIO_SKIP_ENTER)
-		dialogue_ui.skip_typing()  # 跳完当前打字；finished 信号会驱动后指令与续跑
+		if _suspended:
+			# 抢占期间 holds_cleared 被抑制，此处手动续跑（SKIP 将自驱动连续推进）
+			_suspended = false
+			run_script()
+		else:
+			dialogue_ui.skip_typing()  # 跳完当前打字；finished 信号会驱动后指令与续跑
 
 
 func on_change_auto() -> void:

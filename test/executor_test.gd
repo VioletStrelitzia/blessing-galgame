@@ -43,6 +43,8 @@ func _run() -> void:
 	await _test_char()
 	_test_scene()
 	_test_trans_no_controller()
+	_test_sync()
+	await _test_anchor_wait()
 	await _test_three_timings()
 	_test_renderer()
 	await _test_audio()
@@ -539,6 +541,100 @@ func _test_trans_no_controller() -> void:
 	SM.run_script()
 	_assert(not SYNC.has_kind(&"trans"), "无转场控制器时 trans wait:true 不应挂起")
 	_assert(G.vars.get("after_trans", 0.0) == 1.0, "trans 不挂起应继续执行")
+
+
+## 同步器专项：注册表/短路/优先级抢占/处置回调/依赖级联/跃迁单次发射
+func _test_sync() -> void:
+	SYNC.preempt(SYNC.PRIO_RESET)
+	SYNC.mode = SYNC.Mode.INTERACT
+
+	# acquire/release 基本语义
+	var id0: int = SYNC.acquire(&"wait")
+	_assert(id0 != -1 and SYNC.has_kind(&"wait"), "acquire 后应有 wait 挂起")
+	SYNC.release(id0)
+	_assert(not SYNC.has_kind(&"wait"), "release 后挂起应清空")
+
+	# SKIP 短路（非免疫类别不产生挂起；option 为 skip_immune）
+	SYNC.mode = SYNC.Mode.SKIP
+	_assert(SYNC.acquire(&"wait") == -1, "SKIP 中 wait 应短路返回 INVALID")
+	_assert(SYNC.acquire(&"option") != -1, "SKIP 中 option（skip_immune）仍应真实挂起")
+	SYNC.preempt(SYNC.PRIO_RESET)
+	SYNC.mode = SYNC.Mode.INTERACT
+
+	# 优先级抢占：option（阈值 PRIO_RESET）在点击下存活，wait 被 KILL
+	SYNC.acquire(&"option")
+	SYNC.acquire(&"wait")
+	SYNC.preempt(SYNC.PRIO_CLICK)
+	_assert(SYNC.has_kind(&"option") and not SYNC.has_kind(&"wait"),
+		"点击抢占应 KILL wait 而保留 option（阈值保护）")
+	SYNC.preempt(SYNC.PRIO_RESET)
+	_assert(not SYNC.has_kind(&"option"), "RESET 应清掉 option")
+
+	# FAST_FORWARD 处置回调（on_fast_forward 被调用并释放）
+	var ff := [false]
+	SYNC.acquire(&"char", null, func(): ff[0] = true)
+	SYNC.preempt(SYNC.PRIO_CLICK)
+	_assert(ff[0] and not SYNC.has_kind(&"char"), "CHAR 抢占应回调 on_fast_forward 并释放")
+
+	# 依赖图预留：B 依赖 A；A 释放后 B 级联清空，门闸随之放开
+	var id_a: int = SYNC.acquire(&"wait")
+	var deps: Array[int] = [id_a]
+	SYNC.acquire(&"wait", null, Callable(), Callable(), deps)
+	_assert(not SYNC.is_clear(), "依赖未清空前门闸应被堵")
+	SYNC.release(id_a)
+	_assert(SYNC.is_clear(), "A 释放后依赖它的 B 应级联清空")
+
+	# holds_cleared 只在跃迁时发射一次
+	var fired := [0]
+	var cb := func(): fired[0] += 1
+	SYNC.holds_cleared.connect(cb)
+	var w1: int = SYNC.acquire(&"wait")
+	var w2: int = SYNC.acquire(&"wait")
+	SYNC.release(w1)
+	_assert(fired[0] == 0, "仍有挂起时不应发射 holds_cleared")
+	SYNC.release(w2)
+	_assert(fired[0] == 1, "全部清空应发射恰好一次")
+	SYNC.holds_cleared.disconnect(cb)
+
+
+## 锚点 wait:true（同步器转正）：打字中途触发的 char 挂起阻塞 AUTO 自动推进；点击打断直达终态
+func _test_anchor_wait() -> void:
+	var c: Character = SM.gal_world2d.characters[0]
+	c.reset([], true)
+	var saved_wait: float = G.auto_wait_time
+	G.auto_wait_time = 0.2
+
+	# AUTO：锚点挂起阻塞自动推进，动画完成后经重布推进
+	_load_text([
+		"演[char 0 show time:0.5 wait:true]出",
+		"下一句",
+	])
+	SYNC.mode = SYNC.Mode.AUTO
+	SM.run_script()  # 开始打字；锚点在显示文本第 2 位，随即触发
+	await create_timer(0.4).timeout
+	_assert(SYNC.has_kind(&"char"), "锚点 char wait:true 应产生挂起")
+	var idx1: int = SM.idx
+	await create_timer(0.2).timeout  # 动画未完，AUTO 预约被门闸拦截
+	_assert(SM.idx == idx1, "锚点挂起期间 AUTO 不得推进")
+	await create_timer(1.2).timeout  # 动画完成（0.5s）→ 释放 → 重布 0.2s 后推进
+	_assert(SM.idx > idx1, "动画完成后 AUTO 应推进")
+
+	# 点击打断（房规）：挂起被 FAST_FORWARD 处置后放行
+	_load_text([
+		"演[char 0 hide time:2.0 wait:true]出",
+		"再下一句",
+	])
+	SYNC.mode = SYNC.Mode.INTERACT
+	SM.run_script()
+	await create_timer(0.3).timeout
+	_assert(SYNC.has_kind(&"char"), "锚点挂起应已产生")
+	SM.dialogue_ui.skip_typing()  # 点击的第一语义：先跳完打字
+	SM._advance()  # 第二语义：preempt → skip_all 直达终态 + 放行
+	_assert(not SYNC.has_kind(&"char"), "点击应打断锚点挂起（FAST_FORWARD 处置）")
+
+	G.auto_wait_time = saved_wait
+	SYNC.mode = SYNC.Mode.INTERACT
+	c.reset([], true)
 
 
 func _test_three_timings() -> void:
