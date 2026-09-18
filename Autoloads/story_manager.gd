@@ -747,7 +747,8 @@ func _option_begin(ins: Instruction) -> bool:
 				break
 
 			if item.head == Instruction.Head.OPTION and _option_condition_passed(item):
-				options_text.append(item.params[0])
+				# 选项文本与对话同口径：转义 + {var} 插值（无锚点时间轴，方括号原样保留）
+				options_text.append(DialogueRenderer.render_plain(item.params[0], Global.vars))
 				options_indices.append(scan_idx + 1)
 		scan_idx += 1
 

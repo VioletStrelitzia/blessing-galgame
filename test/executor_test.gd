@@ -38,7 +38,7 @@ func _run() -> void:
 
 	_test_var()
 	await _test_condition()
-	_test_option()
+	await _test_option()
 	_test_jump_begin()
 	await _test_wait()
 	await _test_char()
@@ -408,6 +408,21 @@ func _test_option() -> void:
 	_assert(not SM._option_waiting, "空选项组不应挂起")
 	_assert(G.vars.get("after", 0.0) == 1.0, "空选项组应跳过整组继续")
 
+	# 选项文本 {var} 插值（与对话同口径，经 DialogueRenderer.render_plain）
+	G.vars.clear()
+	G.vars["gold"] = 50.0
+	_load_text([
+		"* 赎他（现有 {gold} 金币）",
+		"    var pick = 1",
+	])
+	SM.run_script()
+	await create_timer(0.6).timeout  # 选项 UI 在对话框淡出完成后弹出
+	var btn_texts: Array = []
+	for c in SM.option_ui.vbox.get_children():
+		btn_texts.append(c.text)
+	_assert(btn_texts == ["赎他（现有 50 金币）"], "选项文本应插值，实际 %s" % [btn_texts])
+	SM._on_option_made(0, _visible_option_indices())
+
 
 func _test_jump_begin() -> void:
 	# begin 写配置
@@ -578,6 +593,11 @@ func _test_renderer() -> void:
 	# 未定义插值按 0
 	r = DialogueRenderer.render("值{undef_var}。", G.vars)
 	_assert(r["text"] == "值0。", "未定义插值应按 0，实际「%s」" % r["text"])
+
+	# render_plain（选项等无锚点时间轴的 UI 文本）：转义 + 插值，方括号原样保留
+	var plain := DialogueRenderer.render_plain("好感 {affection} \\{x} [sfx demo_bgm]", G.vars)
+	_assert(plain == "好感 3 {x} [sfx demo_bgm]",
+		"render_plain 应插值+转义且保留方括号，实际「%s」" % plain)
 
 
 ## 音频指令执行语义：headless 无声驱动下只断言状态位（playing/volume_db/loop 标志），不断言听感
