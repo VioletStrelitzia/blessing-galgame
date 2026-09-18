@@ -216,6 +216,14 @@ func _init() -> void:
 	ok = _expect_error(["sfx volume rain 0.5 extra"], "两个位置参数") and ok
 	ok = _expect_error(["voice volume 0.5"], "不支持 volume") and ok
 
+	# 30. 条件表达式 malformed：无比较符/缺左值/双比较符/单等号/右值缺失（= 坠入右值）
+	ok = _expect_error(["if a", "    对话"], "无法解析") and ok
+	ok = _expect_error(["if >= 3", "    对话"], "无法解析") and ok
+	ok = _expect_error(["if a >> 3", "    对话"], "右值") and ok
+	ok = _expect_error(["if a = 3", "    对话"], "无法解析") and ok
+	ok = _expect_error(["if a >=", "    对话"], "右值") and ok
+	ok = _expect_error(["* 选项 if:3 > 2", "    对话"], "左值") and ok
+
 	print("DIAGNOSTICS_TEST_DONE ok=", ok)
 	quit(0 if ok else 1)
 

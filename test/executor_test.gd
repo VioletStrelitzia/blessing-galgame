@@ -37,7 +37,7 @@ func _run() -> void:
 	await process_frame
 
 	_test_var()
-	_test_condition()
+	await _test_condition()
 	_test_option()
 	_test_jump_begin()
 	await _test_wait()
@@ -119,9 +119,13 @@ func _test_var() -> void:
 	_assert(G.vars["r"] == first, "var random 同种子应同值：%s vs %s" % [first, G.vars["r"]])
 
 
+## 条件分支执行语义：分支选择 / 对话回合交互 / 选项交互 / SKIP 与防御
 func _test_condition() -> void:
 	G.vars.clear()
 	G.vars["a"] = 5.0
+
+	# --- 分支选择 ---
+
 	# if 真进分支；执行后栈必须归空（R9 缺陷 1 回归锁）
 	_load_seq([
 		_ins(Instruction.Head.IF, ["a", ">=", "5"]),
@@ -161,6 +165,153 @@ func _test_condition() -> void:
 	SM.run_script()
 	_assert(G.vars.get("hit", 0.0) == 7.0, "嵌套 if 应走内层 else")
 	_assert(SM._execution_stack.is_empty(), "嵌套 if 结束后执行栈应为空")
+
+	# 短路：if 真则后续 elif/else 一律不评估不执行
+	_load_seq([
+		_ins(Instruction.Head.IF, ["a", ">=", "5"]),
+		_ins(Instruction.Head.VAR_SET, ["hit", "1"]),
+		_ins(Instruction.Head.ELSE_IF, ["a", ">=", "5"]),  # 条件虽真，但前分支已执行
+		_ins(Instruction.Head.VAR_SET, ["hit", "2"]),
+		_ins(Instruction.Head.ELSE),
+		_ins(Instruction.Head.VAR_SET, ["hit", "3"]),
+		_ins(Instruction.Head.END_IF),
+	])
+	SM.run_script()
+	_assert(G.vars.get("hit", 0.0) == 1.0, "if 真时 elif/else 不得执行（短路），实际 %s" % G.vars.get("hit"))
+	_assert(SM._execution_stack.is_empty(), "短路后执行栈应为空")
+
+	# elif 真则 else 跳过
+	_load_seq([
+		_ins(Instruction.Head.IF, ["a", "<", "5"]),
+		_ins(Instruction.Head.VAR_SET, ["hit", "1"]),
+		_ins(Instruction.Head.ELSE_IF, ["a", "==", "5"]),
+		_ins(Instruction.Head.VAR_SET, ["hit", "2"]),
+		_ins(Instruction.Head.ELSE),
+		_ins(Instruction.Head.VAR_SET, ["hit", "3"]),
+		_ins(Instruction.Head.END_IF),
+	])
+	SM.run_script()
+	_assert(G.vars.get("hit", 0.0) == 2.0, "elif 真时 else 不得执行，实际 %s" % G.vars.get("hit"))
+	_assert(SM._execution_stack.is_empty(), "elif 命中后执行栈应为空")
+
+	# 外层假：内层整条 if/elif/else 链不得到达（跳转表链式正确性）
+	_load_seq([
+		_ins(Instruction.Head.IF, ["a", "<", "0"]),   # 外层假
+		_ins(Instruction.Head.IF, ["a", ">=", "5"]),  # 内层虽真，不得到达
+		_ins(Instruction.Head.VAR_SET, ["hit", "1"]),
+		_ins(Instruction.Head.ELSE),
+		_ins(Instruction.Head.VAR_SET, ["hit", "2"]),
+		_ins(Instruction.Head.END_IF),
+		_ins(Instruction.Head.END_IF),
+		_ins(Instruction.Head.VAR_SET, ["hit", "3"]),  # 结构后继续
+	])
+	SM.run_script()
+	_assert(G.vars.get("hit", 0.0) == 3.0, "外层假应跳过整个内层链，实际 %s" % G.vars.get("hit"))
+	_assert(SM._execution_stack.is_empty(), "外层跳过后执行栈应为空")
+
+	# --- 与对话回合的交互 ---
+
+	# 分支内对话停止点：执行栈跨回合存活；else 分支对话不得显示
+	_load_seq([
+		_ins(Instruction.Head.IF, ["a", ">=", "5"]),
+		_dlg("真分支"),
+		_ins(Instruction.Head.ELSE),
+		_dlg("假分支"),
+		_ins(Instruction.Head.END_IF),
+		_dlg("结构后"),
+	])
+	SM.run_script()  # 停在真分支对话
+	_assert(SM.dialogue_ui.current_dialogue_content == "真分支",
+		"应停在真分支对话，实际 %s" % SM.dialogue_ui.current_dialogue_content)
+	_assert(SM._execution_stack.size() == 1, "对话停止点期间执行栈应保持一层，实际 %s" % [SM._execution_stack])
+	SM.dialogue_ui.skip_typing()  # 打字完成窗口消费 ELSE/END_IF
+	_assert(SM._execution_stack.is_empty(), "离开结构后执行栈应为空")
+	SM._advance()  # 推进到结构后对话
+	_assert(SM.dialogue_ui.current_dialogue_content == "结构后",
+		"else 分支对话不得显示，实际 %s" % SM.dialogue_ui.current_dialogue_content)
+
+	# 假分支对话不显示（else 命中）
+	_load_seq([
+		_ins(Instruction.Head.IF, ["a", "<", "0"]),
+		_dlg("假分支"),
+		_ins(Instruction.Head.ELSE),
+		_dlg("else分支"),
+		_ins(Instruction.Head.END_IF),
+	])
+	SM.run_script()
+	_assert(SM.dialogue_ui.current_dialogue_content == "else分支",
+		"if 假应直接显示 else 分支对话，实际 %s" % SM.dialogue_ui.current_dialogue_content)
+
+	# --- 与选项的交互 ---
+
+	# 分支内选项组：条件真时选项照常弹出并可选
+	_load_seq([
+		_ins(Instruction.Head.IF, ["a", ">=", "5"]),    # 0
+		_ins(Instruction.Head.OPTION, ["甲"]),           # 1
+		_ins(Instruction.Head.VAR_SET, ["hit", "1"]),    # 2
+		_ins(Instruction.Head.OPTION, ["乙"]),           # 3
+		_ins(Instruction.Head.VAR_SET, ["hit", "2"]),    # 4
+		_ins(Instruction.Head.OPTION_END),               # 5
+		_ins(Instruction.Head.VAR_SET, ["after", "1"]),  # 6
+		_ins(Instruction.Head.END_IF),                   # 7
+	])
+	SM.run_script()
+	_assert(SM._option_waiting, "分支内选项组应挂起等待")
+	var branch_indices: Array[int] = [2, 4]
+	SM._on_option_made(0, branch_indices)
+	_assert(G.vars.get("hit", 0.0) == 1.0 and G.vars.get("after", 0.0) == 1.0,
+		"分支内选项选择后应走完分支体，实际 hit=%s after=%s" % [G.vars.get("hit"), G.vars.get("after")])
+	_assert(SM._execution_stack.is_empty(), "分支内选项结束后执行栈应为空")
+
+	# 选项块内 if 分流
+	_load_seq([
+		_ins(Instruction.Head.OPTION, ["甲"]),           # 0
+		_ins(Instruction.Head.IF, ["a", ">=", "5"]),     # 1
+		_ins(Instruction.Head.VAR_SET, ["hit", "1"]),    # 2
+		_ins(Instruction.Head.ELSE),                     # 3
+		_ins(Instruction.Head.VAR_SET, ["hit", "2"]),    # 4
+		_ins(Instruction.Head.END_IF),                   # 5
+		_ins(Instruction.Head.OPTION, ["乙"]),           # 6
+		_ins(Instruction.Head.VAR_SET, ["hit", "3"]),    # 7
+		_ins(Instruction.Head.OPTION_END),               # 8
+	])
+	SM.run_script()
+	_assert(SM._option_waiting, "选项组应挂起等待")
+	var outer_indices: Array[int] = [1, 7]
+	SM._on_option_made(0, outer_indices)  # 选甲 → 块内 if 真
+	_assert(G.vars.get("hit", 0.0) == 1.0, "选项块内 if 真应走真分支，实际 %s" % G.vars.get("hit"))
+	_assert(SM._execution_stack.is_empty(), "选项块内 if 结束后执行栈应为空")
+
+	# --- SKIP 与防御 ---
+
+	# SKIP 穿越分支：真路径对话照样流过，假分支不显示
+	SM._set_manager_mode(2)  # SKIP
+	_load_seq([
+		_ins(Instruction.Head.IF, ["a", ">=", "5"]),
+		_dlg("SKIP真"),
+		_ins(Instruction.Head.ELSE),
+		_dlg("SKIP假"),
+		_ins(Instruction.Head.END_IF),
+		_dlg("SKIP后"),
+	])
+	SM.run_script()
+	await create_timer(0.5).timeout  # SKIP 以 0 延时定时器连续推进
+	_assert(SM.dialogue_ui.current_dialogue_content == "SKIP后",
+		"SKIP 应穿越真分支停在结构后，实际 %s" % SM.dialogue_ui.current_dialogue_content)
+	_assert(SM._execution_stack.is_empty(), "SKIP 穿越后执行栈应为空")
+	SM._set_manager_mode(0)  # 还原 INTERACT
+
+	# 空栈守卫回归：孤立 ELSE/ELSE_IF/END_IF 不崩溃、不死循环、栈仍为空
+	#（编译期已拦截，此处锁运行期防御行为；产物损毁时顺序继续优于崩死）
+	_load_seq([
+		_ins(Instruction.Head.ELSE),
+		_ins(Instruction.Head.END_IF),
+		_ins(Instruction.Head.ELSE_IF, ["a", "==", "5"]),
+		_ins(Instruction.Head.VAR_SET, ["hit", "9"]),
+	])
+	SM.run_script()
+	_assert(SM._execution_stack.is_empty(), "孤立分支指令后执行栈应为空")
+	_assert(G.vars.get("hit", 0.0) == 9.0, "守卫后应顺序继续执行")
 
 
 func _test_option() -> void:
