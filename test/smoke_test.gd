@@ -29,8 +29,10 @@ func _init() -> void:
 				match item.head:
 					Instruction.Head.OPTION:
 						option_count += 1
-						if (item.params[1] as String) == "affection":
-							has_conditional_option = true
+						# 条件为后缀记号流（v2.3）：含 PUSH_VAR affection 即条件选项
+						for token in item.params[1]:
+							if token[0] == Instruction.CondTag.PUSH_VAR and token[1] == "affection":
+								has_conditional_option = true
 					Instruction.Head.OPTION_END:
 						has_option_end = true
 					Instruction.Head.VAR_SET:

@@ -26,7 +26,7 @@ enum Head {
 	CHAR_CHANGE_TEXTURE,	# char <idx> texture <path>
 
 	# [选择系统]
-	OPTION,     			# * 文本 [if:条件]（条件三槽可为空）
+	OPTION,     			# * 文本 [if:条件]（条件为后缀记号流，空 = 恒真）
 	OPTION_END,     		# 编译期生成的选项组收尾
 
 	# [变量操作]
@@ -37,10 +37,10 @@ enum Head {
 	VAR_DIV,    			# var <key> /= <值|变量>
 	VAR_RANDOM, 			# var <key> = random <min> <max>
 
-	# [逻辑流控制]
-	IF,         			# if <左值> <比较符> <右值|变量>
-	ELSE_IF,    			# elif <左值> <比较符> <右值|变量>
-	ELSE,       			# else
+	# [逻辑流控制]（v2.3 起：条件为后缀记号流，分支跳转目标由编译期回填）
+	IF,         			# if <条件>，参数 [tokens, next_target]
+	ELSE_IF,    			# elif <条件>，参数 [tokens, next_target, end_target]
+	ELSE,       			# else，参数 [end_target]
 	END_IF,     			# 编译期生成的条件结构收尾
 
 	# [脚本跳转]
@@ -64,6 +64,17 @@ enum Head {
 
 	# [音频指令·v2.2 追加]
 	SFX_VOLUME, 			# sfx volume <引用> <0~1> [fade:秒]（调节在播音效响度，不中断播放）
+}
+
+## 条件记号标签：条件表达式经编译期递归下降解析为后缀记号流（token = [tag, payload]），
+## 运行时栈机求值（StoryManager._eval_condition）。序列化按整数存储，新增一律尾部追加。
+enum CondTag {
+	PUSH_NUM,  ## [PUSH_NUM, float] 压入数字字面量
+	PUSH_VAR,  ## [PUSH_VAR, String] 压入变量值（未定义按 0.0）
+	CMP,       ## [CMP, op] 弹出 lhs/rhs 比较，压入 bool
+	NOT,       ## [NOT, 0] 弹出一值取真值后取反
+	AND,       ## [AND, 0] 弹出两值取真值逻辑与
+	OR,        ## [OR, 0] 弹出两值取真值逻辑或
 }
 
 @export var head: Head
@@ -120,17 +131,16 @@ func _init(head_: Head = Head.BLANK, args: Array[String] = []) -> void:
 			params.append(_arg_int(args, 0, 0))
 			params.append(_arg_str(args, 1, ""))
 
-		# 选项：文本 + 可选条件三槽（key/op/value，无条件时全空）
-		# 参数: [text: String, cond_key: String, cond_op: String, cond_value: String]
+		# 选项：文本 + 条件记号流（空 = 恒真）。tokens 由编译器直接写入，不经字符串 args
+		# 参数: [text: String, tokens: Array]
 		Head.OPTION:
 			params.append(_arg_str(args, 0, ""))
-			params.append(_arg_str(args, 1, ""))
-			params.append(_arg_str(args, 2, ""))
-			params.append(_arg_str(args, 3, ""))
+			params.append([])
 
 		# 无参数指令
 		Head.JUMP_MAIN_MENU, \
-		Head.OPTION_END:
+		Head.OPTION_END, \
+		Head.END_IF:
 			pass
 
 		# 角色动画（实例索引进入各指令参数）
@@ -177,18 +187,21 @@ func _init(head_: Head = Head.BLANK, args: Array[String] = []) -> void:
 			params.append(_arg_float(args, 1, 0.0))
 			params.append(_arg_float(args, 2, 1.0))
 
-		# 逻辑流控制（value 为字符串：数字字面量或变量名，运行时解析）
-		# 参数: [key: String, operator: String, value: String]
-		Head.IF, \
-		Head.ELSE_IF:
-			params.append(_arg_str(args, 0, ""))
-			params.append(_arg_str(args, 1, "=="))
-			params.append(_arg_str(args, 2, ""))
+		# 逻辑流控制：tokens（后缀记号流）与跳转目标均由编译器直接写入，不经字符串 args
+		# 参数: [tokens: Array, next_target: int]
+		Head.IF:
+			params.append([])
+			params.append(0)
 
-		# 无参数逻辑指令
-		Head.ELSE, \
-		Head.END_IF:
-			pass
+		# 参数: [tokens: Array, next_target: int, end_target: int]
+		Head.ELSE_IF:
+			params.append([])
+			params.append(0)
+			params.append(0)
+
+		# 参数: [end_target: int]
+		Head.ELSE:
+			params.append(0)
 
 		# 场景挂载
 		# 语法: scene mount <type> <name> <path> [time:秒] [anim:名]
