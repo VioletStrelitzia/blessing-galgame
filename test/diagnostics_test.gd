@@ -183,6 +183,39 @@ func _init() -> void:
 	ok = _expect_error(["char 0 show wait:ture"], "布尔值") and ok
 	ok = _expect_error(["trans in wait:x"], "布尔值") and ok
 
+	# 28. fade_in/fade_out 拆分（v2.2）：fade 简写双侧同值，显式键覆盖对应侧
+	var fade_diags: Array[Dictionary] = []
+	var fade_seq := DialogueImporter.parse_script(PackedStringArray(
+		["music bgm fade:1.5", "music bgm fade_in:0.2 fade_out:3", "music bgm fade:1 fade_out:2"]), "test", fade_diags)
+	ok = _assert(fade_diags.is_empty(), "fade 拆分合法写法不应产生诊断: %s" % [fade_diags]) and ok
+	var f := fade_seq.seq
+	ok = _assert(f.size() == 3, "应产出 3 条指令，实际 %d" % f.size()) and ok
+	if f.size() == 3:
+		ok = _assert(f[0].params[3] == 1.5 and f[0].params[4] == 1.5,
+			"fade:1.5 简写应双侧同值，实际 %s" % [f[0].params]) and ok
+		ok = _assert(f[1].params[3] == 0.2 and f[1].params[4] == 3.0,
+			"fade_in/fade_out 应各自落位，实际 %s" % [f[1].params]) and ok
+		ok = _assert(f[2].params[3] == 1.0 and f[2].params[4] == 2.0,
+			"显式 fade_out 应覆盖 fade 简写对应侧，实际 %s" % [f[2].params]) and ok
+	ok = _expect_error(["music bgm fade_in:abc"], "music fade_in") and ok
+	ok = _expect_error(["music bgm fade_out:abc"], "music fade_out") and ok
+
+	# 29. sfx volume 子动作（v2.2）：解析与校验；voice 无此子动作
+	var sv_diags: Array[Dictionary] = []
+	var sv_seq := DialogueImporter.parse_script(PackedStringArray(
+		["sfx volume rain 0.5 fade:0.1"]), "test", sv_diags)
+	ok = _assert(sv_diags.is_empty(), "sfx volume 合法写法不应产生诊断: %s" % [sv_diags]) and ok
+	ok = _assert(sv_seq.seq.size() == 1, "应产出 1 条指令，实际 %d" % sv_seq.seq.size()) and ok
+	if sv_seq.seq.size() == 1:
+		var sv0 := sv_seq.seq[0] as Instruction
+		ok = _assert(sv0.head == Instruction.Head.SFX_VOLUME
+			and sv0.params[0] == "rain" and sv0.params[1] == 0.5 and sv0.params[2] == 0.1,
+			"sfx volume 参数应为 [rain, 0.5, 0.1]，实际 %s" % [sv0.params]) and ok
+	ok = _expect_error(["sfx volume rain"], "两个位置参数") and ok
+	ok = _expect_error(["sfx volume rain 1.5"], "0~1") and ok
+	ok = _expect_error(["sfx volume rain 0.5 extra"], "两个位置参数") and ok
+	ok = _expect_error(["voice volume 0.5"], "不支持 volume") and ok
+
 	print("DIAGNOSTICS_TEST_DONE ok=", ok)
 	quit(0 if ok else 1)
 

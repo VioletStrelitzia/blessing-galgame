@@ -90,6 +90,7 @@ func _ready() -> void:
 		Instruction.Head.VOICE_STOP: 		_voice_stop,
 		Instruction.Head.SFX_PLAY: 			_sfx_play,
 		Instruction.Head.SFX_STOP: 			_sfx_stop,
+		Instruction.Head.SFX_VOLUME: 		_sfx_volume,
 		Instruction.Head.SET_BACKGROUND: 	_set_background,
 		Instruction.Head.CHAR_SETUP: 		_char_setup,
 		Instruction.Head.CHAR_SHOW_FADE: 	_char_show_fade,
@@ -295,9 +296,23 @@ func _on_dialogue_finished() -> void:
 func _arm_advance_trigger() -> void:
 	match manager_mode:
 		ManagerMode.AUTO:
-			_schedule_advance(Global.auto_wait_time)
+			# 推进时机 = max(打字完成, 语音播完) + auto_wait_time：语音在播则等 voice_finished 后再计时
+			if AudioManager.is_voice_playing():
+				_schedule_advance_after_voice()
+			else:
+				_schedule_advance(Global.auto_wait_time)
 		ManagerMode.SKIP:
 			_schedule_advance(0.0)
+
+
+## 语音在播时的 AUTO 推进：等 voice_finished 再进入正常计时
+##（一次性连接 + 触发时校验：语音被停/模式已切/已被推进时此处空触发丢弃；
+## voice stop 不触发 finished，「停止中」状态由 is_voice_playing 在布置时排除）
+func _schedule_advance_after_voice() -> void:
+	AudioManager.voice_finished.connect(func():
+		if _waiting and manager_mode == ManagerMode.AUTO:
+			_schedule_advance(Global.auto_wait_time)
+	, CONNECT_ONE_SHOT)
 
 
 ## 预约一次推进；触发时若已切换模式或已被推进则丢弃（一次性定时器，随树暂停）
@@ -381,16 +396,17 @@ func next_story(free: bool = false) -> void:
 
 
 func _music_play(ins: Instruction) -> bool:
-	# 解包参数: [path: String, from: float, loop: bool, fade: float, volume: float]
+	# 解包参数: [path: String, from: float, loop: bool, fade_in: float, fade_out: float, volume: float]
 	var key: String = ins.params[0] as String
 	var from_position: float = ins.params[1] as float
 	var loop: bool = ins.params[2] as bool
-	var fade: float = ins.params[3] as float
-	var volume: float = ins.params[4] as float
+	var fade_in: float = ins.params[3] as float
+	var fade_out: float = ins.params[4] as float
+	var volume: float = ins.params[5] as float
 
 	var audio_stream = ResourceManager.load("audio", key)
 	if audio_stream:
-		AudioManager.play_music(audio_stream, from_position, fade, fade, loop, volume)
+		AudioManager.play_music(audio_stream, from_position, fade_out, fade_in, loop, volume)
 	else:
 		GalLogger.error(LOG_TAG, "加载 BGM \"" + key + "\"失败")
 	return false
@@ -473,6 +489,18 @@ func _sfx_stop(ins: Instruction) -> bool:
 		AudioManager.stop_sfx(audio_stream, fade)
 	else:
 		GalLogger.warn(LOG_TAG, "sfx stop 引用无法解析（可能从未播放）: " + ref)
+	return false
+
+
+## sfx volume <引用> <0~1> [fade:秒]：按流身份匹配调节在播音效响度，不中断播放
+func _sfx_volume(ins: Instruction) -> bool:
+	# 参数: [ref: String, volume: float, fade: float]
+	var ref: String = ins.params[0]
+	var audio_stream = ResourceManager.load("audio", ref)
+	if audio_stream:
+		AudioManager.set_sfx_volume(audio_stream, ins.params[1] as float, ins.params[2] as float)
+	else:
+		GalLogger.warn(LOG_TAG, "sfx volume 引用无法解析（可能从未播放）: " + ref)
 	return false
 
 

@@ -54,6 +54,21 @@ func stop_all(fade: float = 0.3) -> void:
 			_fade_out_and_stop(player, fade)
 
 
+## 按流身份匹配调节在播音效响度（线性 0~1，不中断播放；环境音渐强渐弱用）
+## 淡出停止中的播放器身份已被 _fade_out_and_stop 擦除，天然不被匹配（无 music 侧的 F2 类问题）
+func set_volume(audio: AudioStream, volume: float, fade: float = 0.3) -> void:
+	for player in players:
+		if player.playing and _streams.get(player) == audio:
+			_kill_fade_tween(player)
+			var target := linear_to_db(volume)
+			if fade <= 0.0:
+				player.volume_db = target
+				continue
+			var tween := create_tween()
+			tween.tween_property(player, "volume_db", target, fade)
+			_fade_tweens[player] = tween
+
+
 ## 分配播放器：空闲优先；全忙时按轮询序（最老优先）先抢非循环的，最后才抢循环中的
 func _pick_player() -> AudioStreamPlayer:
 	for player in players:
