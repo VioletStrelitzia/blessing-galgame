@@ -896,7 +896,20 @@ func _evaluate_condition(key: String, operator: String, value: String) -> bool:
 
 
 func _get_jump_target(current_idx: int) -> int:
-	return _jump_table.get(current_idx, current_idx + 1)
+	if not _jump_table.has(current_idx):
+		# 兜底不应到达（编译期保证条件结构配对）；告警留痕而非静默按顺序走进分支体
+		GalLogger.warn(LOG_TAG, "跳转表缺少索引 %d 的条目（条件结构不完整？），按顺序继续" % current_idx)
+		return current_idx + 1
+	return _jump_table[current_idx]
+
+
+## 空栈守卫：ELSE_IF/ELSE/END_IF 在执行栈为空时被调用说明产物结构失衡
+##（编译期已保证配对，正常不可达）。报错留痕并顺序继续——不查跳转表，避免畸形表造成死循环
+func _guard_stack_nonempty(what: String, ins: Instruction) -> bool:
+	if not _execution_stack.is_empty():
+		return true
+	GalLogger.error(LOG_TAG, "%s 执行栈为空（条件结构失衡），忽略: %s" % [what, ins])
+	return false
 
 
 func _if_condition(ins: Instruction) -> bool:
@@ -915,6 +928,8 @@ func _if_condition(ins: Instruction) -> bool:
 
 
 func _else_if_condition(ins: Instruction) -> bool:
+	if not _guard_stack_nonempty("ELSE_IF", ins):
+		return false
 	if _execution_stack[-1] == true:
 		_jump_to_end_of_structure()
 		return false
@@ -933,6 +948,8 @@ func _else_if_condition(ins: Instruction) -> bool:
 
 
 func _else_condition(_ins) -> bool:
+	if not _guard_stack_nonempty("ELSE", _ins):
+		return false
 	if _execution_stack[-1] == true:
 		_jump_to_end_of_structure()
 		return false
@@ -942,6 +959,8 @@ func _else_condition(_ins) -> bool:
 
 
 func _end_if_condition(_ins) -> bool:
+	if not _guard_stack_nonempty("END_IF", _ins):
+		return false
 	_execution_stack.pop_back()
 	return false
 
