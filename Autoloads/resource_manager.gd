@@ -31,6 +31,8 @@ func _ready():
 		di.save_dir = scripts_save_dir
 		# char 实例索引的编译期越界校验上限（JSON 数值读入为 float，需转 int；缺省 -1 不校验）
 		di.char_max = int(Global.config.get("character", {}).get("max", -1))
+		# 资源引用编译期校验的登记表（index.json 各域 key；模组可提供表外资源，缺失仅警告）
+		di.known_refs = _path_dict
 		add_child(di)
 		remove_child(di)
 		di.queue_free()
