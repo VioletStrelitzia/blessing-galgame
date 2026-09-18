@@ -28,11 +28,8 @@ var log_idx := 0
 var current_option_end_idx: int = -1
 
 # --- 逻辑流控制 ---
-# key: 指令索引
-# value: 跳转目标索引
-var _jump_table: Dictionary = {}
-
 # 逻辑层级执行状态栈，元素为是否已有分支执行
+#（分支跳转目标在编译期烧进指令参数，运行时无跳转表——见 DialogueImporter._resolve_condition_targets）
 var _execution_stack: Array[bool] = []
 
 var next_script: String
@@ -171,39 +168,6 @@ func on_change_auto() -> void:
 func load_script(script_name: String):
 	cur_script_name = script_name
 	cur_script = ResourceManager.load("script", script_name) as GalEventItemSequence
-	_build_jump_table()
-
-
-func _build_jump_table() -> void:
-	_jump_table.clear()
-	var temp_stack: Array[Array] = [] # [指令类型, 索引]
-	
-	for i in range(cur_script.seq.size()):
-		var item = cur_script.seq[i]
-		if item is Instruction:
-			match item.head:
-				Instruction.Head.IF:
-					# 记录 IF 位置
-					temp_stack.append([Instruction.Head.IF, i])
-					
-				Instruction.Head.ELSE_IF, Instruction.Head.ELSE:
-					# 接到同一层级的下一个分支
-					if temp_stack.is_empty():
-						GalLogger.error(LOG_TAG, "第 %d 行发现孤立的 ELSE/ELSE_IF" % i)
-						continue
-					
-					var last = temp_stack.back()
-					_jump_table[last[1]] = i  # 上一分支失败时跳到这里
-					last[1] = i               # 当前分支起点
-					
-				Instruction.Head.END_IF:
-					if temp_stack.is_empty():
-						GalLogger.error(LOG_TAG, "第 %d 行发现孤立的 END_IF" % i)
-						continue
-						
-					var last = temp_stack.pop_back()
-					# 当前分支失败时跳到 END_IF
-					_jump_table[last[1]] = i
 
 
 ## 推进一个回合：打字中则跳完（dialogue_finished 驱动后指令与续跑），否则执行到下一停止点
@@ -814,12 +778,10 @@ func _option_begin(ins: Instruction) -> bool:
 	return true  # 选项 UI 接管推进
 
 
-## 选项条件三槽：cond_key 为空视为无条件
+## 选项条件：tokens 为空 = 无条件（恒真）
 func _option_condition_passed(item: Instruction) -> bool:
-	var cond_key: String = item.params[1]
-	if cond_key.is_empty():
-		return true
-	return _evaluate_condition(cond_key, item.params[2], item.params[3])
+	var tokens: Array = item.params[1]
+	return tokens.is_empty() or _eval_condition(tokens)
 
 
 func _on_option_made(option_index: int, options_indices: Array[int]) -> void:
@@ -872,39 +834,81 @@ func _jump_main_menu(_ins: Instruction = null) -> bool:
 	return true
 
 
-func _evaluate_condition(key: String, operator: String, value: String) -> bool:
-	# 不存在的变量视为 0.0；右值支持数字字面量或变量名
-	var var_value: float = Global.vars.get(key, 0.0)
-	var rhs := _resolve_value(value)
+## 条件求值：后缀记号流栈机（编译期编码见 Instruction.CondTag；分支目标见 params）。
+## 全函数：任意畸形输入最坏得到 false + 错误日志（编译期已保证良构，此为产物损毁护栏）
+func _eval_condition(tokens: Array) -> bool:
+	var stack: Array = []
+	for token in tokens:
+		match token[0]:
+			Instruction.CondTag.PUSH_NUM:
+				stack.append(token[1])
+			Instruction.CondTag.PUSH_VAR:
+				stack.append(Global.vars.get(token[1], 0.0))  # 不存在的变量视为 0.0
+			Instruction.CondTag.CMP:
+				if stack.size() < 2:
+					return _cond_malformed(tokens)
+				var rhs: float = stack.pop_back()
+				var lhs: float = stack.pop_back()
+				stack.append(_compare_values(lhs, token[1], rhs))
+			Instruction.CondTag.NOT:
+				if stack.is_empty():
+					return _cond_malformed(tokens)
+				stack.append(not _truthy(stack.pop_back()))
+			Instruction.CondTag.AND:
+				if stack.size() < 2:
+					return _cond_malformed(tokens)
+				var and_rhs: bool = _truthy(stack.pop_back())
+				var and_lhs: bool = _truthy(stack.pop_back())
+				stack.append(and_lhs and and_rhs)
+			Instruction.CondTag.OR:
+				if stack.size() < 2:
+					return _cond_malformed(tokens)
+				var or_rhs: bool = _truthy(stack.pop_back())
+				var or_lhs: bool = _truthy(stack.pop_back())
+				stack.append(or_lhs or or_rhs)
+			_:
+				return _cond_malformed(tokens)
+	if stack.size() != 1:
+		return _cond_malformed(tokens)
+	return _truthy(stack[0])
 
-	match operator:
+
+## 真值口径：bool 原样；数字非 0 为真（裸变量条件如 if flag 的语义）
+static func _truthy(v: Variant) -> bool:
+	if v is bool:
+		return v
+	if v is float or v is int:
+		return v != 0.0
+	return false
+
+
+## 数值比较（==/!= 为浮点近似）
+func _compare_values(lhs: float, op: String, rhs: float) -> bool:
+	match op:
 		"==":
-			return is_equal_approx(var_value, rhs)
+			return is_equal_approx(lhs, rhs)
 		"!=":
-			return not is_equal_approx(var_value, rhs)
+			return not is_equal_approx(lhs, rhs)
 		">":
-			return var_value > rhs
+			return lhs > rhs
 		">=":
-			return var_value > rhs or is_equal_approx(var_value, rhs)
+			return lhs > rhs or is_equal_approx(lhs, rhs)
 		"<":
-			return var_value < rhs
+			return lhs < rhs
 		"<=":
-			return var_value < rhs or is_equal_approx(var_value, rhs)
+			return lhs < rhs or is_equal_approx(lhs, rhs)
 		_:
-			GalLogger.warn(LOG_TAG, "未知的比较运算符: " + operator + "，使用 == 作为默认值")
-			return is_equal_approx(var_value, rhs)
+			GalLogger.error(LOG_TAG, "未知比较符（产物损毁？）按 false 处理: " + op)
+			return false
 
 
-func _get_jump_target(current_idx: int) -> int:
-	if not _jump_table.has(current_idx):
-		# 兜底不应到达（编译期保证条件结构配对）；告警留痕而非静默按顺序走进分支体
-		GalLogger.warn(LOG_TAG, "跳转表缺少索引 %d 的条目（条件结构不完整？），按顺序继续" % current_idx)
-		return current_idx + 1
-	return _jump_table[current_idx]
+func _cond_malformed(tokens: Array) -> bool:
+	GalLogger.error(LOG_TAG, "条件记号流畸形（产物损毁？）按 false 处理: %s" % [tokens])
+	return false
 
 
 ## 空栈守卫：ELSE_IF/ELSE/END_IF 在执行栈为空时被调用说明产物结构失衡
-##（编译期已保证配对，正常不可达）。报错留痕并顺序继续——不查跳转表，避免畸形表造成死循环
+##（编译期已保证配对，正常不可达）。报错留痕并顺序继续
 func _guard_stack_nonempty(what: String, ins: Instruction) -> bool:
 	if not _execution_stack.is_empty():
 		return true
@@ -913,47 +917,37 @@ func _guard_stack_nonempty(what: String, ins: Instruction) -> bool:
 
 
 func _if_condition(ins: Instruction) -> bool:
-	var key = ins.params[0]
-	var op = ins.params[1]
-	var val = ins.params[2]
-	
+	# 参数: [tokens: Array, next_target: int]（next_target = 下一分支头或 END_IF，编译期回填）
 	_execution_stack.append(false)
-	
-	if _evaluate_condition(key, op, val):
+	if _eval_condition(ins.params[0]):
 		_execution_stack[-1] = true
-		return false
 	else:
-		idx = _get_jump_target(idx - 1) 
-		return false
+		idx = ins.params[1]
+	return false
 
 
 func _else_if_condition(ins: Instruction) -> bool:
+	# 参数: [tokens: Array, next_target: int, end_target: int]
 	if not _guard_stack_nonempty("ELSE_IF", ins):
 		return false
+	# 前分支已执行：直接到 END_IF 弹栈（R9 缺陷 1：落点是 END_IF 本身）
 	if _execution_stack[-1] == true:
-		_jump_to_end_of_structure()
+		idx = ins.params[2]
 		return false
-
-	# 前面的分支都没执行，检查当前条件
-	var key = ins.params[0]
-	var op = ins.params[1]
-	var val = ins.params[2]
-	
-	if _evaluate_condition(key, op, val):
+	if _eval_condition(ins.params[0]):
 		_execution_stack[-1] = true
-		return false
 	else:
-		idx = _get_jump_target(idx - 1)
-		return false
+		idx = ins.params[1]
+	return false
 
 
-func _else_condition(_ins) -> bool:
-	if not _guard_stack_nonempty("ELSE", _ins):
+func _else_condition(ins: Instruction) -> bool:
+	# 参数: [end_target: int]
+	if not _guard_stack_nonempty("ELSE", ins):
 		return false
 	if _execution_stack[-1] == true:
-		_jump_to_end_of_structure()
+		idx = ins.params[0]
 		return false
-		
 	_execution_stack[-1] = true
 	return false
 
@@ -963,14 +957,6 @@ func _end_if_condition(_ins) -> bool:
 		return false
 	_execution_stack.pop_back()
 	return false
-
-
-func _jump_to_end_of_structure() -> void:
-	var scan = idx - 1
-	while _jump_table.has(scan):
-		scan = _jump_table[scan]
-	# 落点为 END_IF 本身（而非其后），让 _end_if_condition 正常弹栈——修复执行栈泄漏（R9 缺陷 1）
-	idx = scan
 
 
 func _show_dialogue(dialogue_item: DialogueItem) -> void:

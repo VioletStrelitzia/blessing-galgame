@@ -86,7 +86,7 @@ func _init() -> void:
 	ok = _expect_error(["if 3 > 2", "    对话"], "左值") and ok
 
 	# 15. 条件右值必须是数字或变量名
-	ok = _expect_error(["if a >= 1x", "    对话"], "右值") and ok
+	ok = _expect_error(["if a >= 1x", "    对话"], "无法识别的记号") and ok
 
 	# 16. var 变量名必须是合法标识符；右值必须是数字或变量名
 	ok = _expect_error(["var 1a = 3"], "标识符") and ok
@@ -216,13 +216,39 @@ func _init() -> void:
 	ok = _expect_error(["sfx volume rain 0.5 extra"], "两个位置参数") and ok
 	ok = _expect_error(["voice volume 0.5"], "不支持 volume") and ok
 
-	# 30. 条件表达式 malformed：无比较符/缺左值/双比较符/单等号/右值缺失（= 坠入右值）
-	ok = _expect_error(["if a", "    对话"], "无法解析") and ok
-	ok = _expect_error(["if >= 3", "    对话"], "无法解析") and ok
-	ok = _expect_error(["if a >> 3", "    对话"], "右值") and ok
-	ok = _expect_error(["if a = 3", "    对话"], "无法解析") and ok
-	ok = _expect_error(["if a >=", "    对话"], "右值") and ok
+	# 30. 条件表达式 malformed（v2.3 递归下降解析口径）
+	ok = _expect_error(["if >= 3", "    对话"], "缺少变量名或比较式") and ok
+	ok = _expect_error(["if a >> 3", "    对话"], "后缺少操作数") and ok
+	ok = _expect_error(["if a = 3", "    对话"], "无法识别的符号") and ok
+	ok = _expect_error(["if a >=", "    对话"], "后缺少操作数") and ok
 	ok = _expect_error(["* 选项 if:3 > 2", "    对话"], "左值") and ok
+
+	# 31. 复合条件（and/or/not/括号/裸变量）：合法零诊断 +  malformed 报错
+	var cc_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray([
+		"if a >= 1 and (b < 2 or not c)",
+		"    对话甲",
+		"elif not flag or debug_mode",
+		"    对话乙",
+		"* 选项 if:a >= 1 and b < 2",
+		"    对话丙",
+	]), "test", cc_diags)
+	ok = _assert(cc_diags.is_empty(), "复合条件合法写法不应产生诊断: %s" % [cc_diags]) and ok
+	ok = _expect_error(["if (a >= 1", "    对话"], "括号不配对") and ok
+	ok = _expect_error(["if a >= 1 and", "    对话"], "and 后缺少条件") and ok
+	ok = _expect_error(["if a == 1 == 2", "    对话"], "多余内容") and ok
+	ok = _expect_error(["if 5", "    对话"], "裸数字") and ok
+	ok = _expect_error(["var and = 1"], "保留字") and ok
+
+	# 32. 保留字前缀不误判：orx/not_a 等变量名在声明与条件中都合法
+	var rw_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray([
+		"var orx = 1",
+		"var not_a = 2",
+		"if orx >= 1 and not_a <= 2",
+		"    对话",
+	]), "test", rw_diags)
+	ok = _assert(rw_diags.is_empty(), "保留字前缀变量名不应误报: %s" % [rw_diags]) and ok
 
 	print("DIAGNOSTICS_TEST_DONE ok=", ok)
 	quit(0 if ok else 1)

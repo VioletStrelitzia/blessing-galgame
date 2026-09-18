@@ -59,7 +59,7 @@ func _assert(cond: bool, msg: String) -> void:
 		print("FAIL: ", msg)
 
 
-## 构造线性事件序列并装载为当前剧本
+## 构造线性事件序列并装载为当前剧本（条件结构请用 _load_text——v2.3 起跳转目标由编译期回填）
 func _load_seq(items: Array[GalEventItem]) -> void:
 	var s := GalEventItemSequence.new()
 	s.compiler = DialogueImporter.COMPILER_VERSION
@@ -67,10 +67,33 @@ func _load_seq(items: Array[GalEventItem]) -> void:
 		s.seq.append(it)
 	SM.cur_script_name = "test_seq"
 	SM.cur_script = s
-	SM._build_jump_table()
 	SM.idx = 0
 	SM._execution_stack.clear()
 	SM.current_option_end_idx = -1
+
+
+## 经真实编译器构造并装载剧本（测试脚本应零诊断）
+func _load_text(lines: Array) -> void:
+	var diags: Array[Dictionary] = []
+	var compiled := DialogueImporter.parse_script(PackedStringArray(lines), "test_text", diags)
+	_assert(diags.is_empty(), "测试脚本应零诊断: %s" % [diags])
+	SM.cur_script_name = "test_text"
+	SM.cur_script = compiled
+	SM.idx = 0
+	SM._execution_stack.clear()
+	SM.current_option_end_idx = -1
+
+
+## 当前剧本可见选项的分支体起始索引（条件经运行时求值过滤，与 _option_begin 同口径）
+func _visible_option_indices() -> Array[int]:
+	var out: Array[int] = []
+	for i in range(SM.cur_script.seq.size()):
+		var it = SM.cur_script.seq[i]
+		if it is Instruction and it.head == Instruction.Head.OPTION:
+			var tokens: Array = it.params[1]
+			if tokens.is_empty() or SM._eval_condition(tokens):
+				out.append(i + 1)
+	return out
 
 
 func _ins(head: Instruction.Head, args: Array[String] = []) -> Instruction:
@@ -119,106 +142,152 @@ func _test_var() -> void:
 	_assert(G.vars["r"] == first, "var random 同种子应同值：%s vs %s" % [first, G.vars["r"]])
 
 
-## 条件分支执行语义：分支选择 / 对话回合交互 / 选项交互 / SKIP 与防御
+## 条件分支执行语义：经真实编译器构造（v2.3 起条件为编译期记号流 + 跳转目标回填，手工构造无法模拟）
+## 分组：分支选择 / 复合条件 / 对话与选项交互 / SKIP 与防御
 func _test_condition() -> void:
 	G.vars.clear()
 	G.vars["a"] = 5.0
+	G.vars["b"] = 0.0
 
 	# --- 分支选择 ---
 
 	# if 真进分支；执行后栈必须归空（R9 缺陷 1 回归锁）
-	_load_seq([
-		_ins(Instruction.Head.IF, ["a", ">=", "5"]),
-		_ins(Instruction.Head.VAR_SET, ["hit", "1"]),
-		_ins(Instruction.Head.ELSE),
-		_ins(Instruction.Head.VAR_SET, ["hit", "2"]),
-		_ins(Instruction.Head.END_IF),
+	_load_text([
+		"if a >= 5",
+		"    var hit = 1",
+		"else",
+		"    var hit = 2",
 	])
 	SM.run_script()
 	_assert(G.vars.get("hit", 0.0) == 1.0, "if 真应进分支")
 	_assert(SM._execution_stack.is_empty(), "if 结束后执行栈应为空（泄漏回归），实际 %s" % [SM._execution_stack])
 
-	# 假 → else；且变量右值比较
-	_load_seq([
-		_ins(Instruction.Head.IF, ["a", "<", "5"]),
-		_ins(Instruction.Head.VAR_SET, ["hit", "1"]),
-		_ins(Instruction.Head.ELSE_IF, ["a", "==", "b_missing"]),  # b_missing=0，5==0 假
-		_ins(Instruction.Head.VAR_SET, ["hit", "2"]),
-		_ins(Instruction.Head.ELSE),
-		_ins(Instruction.Head.VAR_SET, ["hit", "3"]),
-		_ins(Instruction.Head.END_IF),
+	# 假 → else；变量右值比较（b_missing 未定义按 0）
+	_load_text([
+		"if a < 5",
+		"    var hit = 1",
+		"elif a == b_missing",
+		"    var hit = 2",
+		"else",
+		"    var hit = 3",
 	])
 	SM.run_script()
 	_assert(G.vars.get("hit", 0.0) == 3.0, "if/elif 全假应进 else")
 	_assert(SM._execution_stack.is_empty(), "elif 链结束后执行栈应为空")
 
 	# 嵌套 if：外层真、内层假（走内层 else）
-	_load_seq([
-		_ins(Instruction.Head.IF, ["a", ">", "0"]),
-		_ins(Instruction.Head.IF, ["a", "<", "0"]),
-		_ins(Instruction.Head.VAR_SET, ["hit", "9"]),
-		_ins(Instruction.Head.ELSE),
-		_ins(Instruction.Head.VAR_SET, ["hit", "7"]),
-		_ins(Instruction.Head.END_IF),
-		_ins(Instruction.Head.END_IF),
+	_load_text([
+		"if a > 0",
+		"    if a < 0",
+		"        var hit = 9",
+		"    else",
+		"        var hit = 7",
 	])
 	SM.run_script()
 	_assert(G.vars.get("hit", 0.0) == 7.0, "嵌套 if 应走内层 else")
 	_assert(SM._execution_stack.is_empty(), "嵌套 if 结束后执行栈应为空")
 
-	# 短路：if 真则后续 elif/else 一律不评估不执行
-	_load_seq([
-		_ins(Instruction.Head.IF, ["a", ">=", "5"]),
-		_ins(Instruction.Head.VAR_SET, ["hit", "1"]),
-		_ins(Instruction.Head.ELSE_IF, ["a", ">=", "5"]),  # 条件虽真，但前分支已执行
-		_ins(Instruction.Head.VAR_SET, ["hit", "2"]),
-		_ins(Instruction.Head.ELSE),
-		_ins(Instruction.Head.VAR_SET, ["hit", "3"]),
-		_ins(Instruction.Head.END_IF),
+	# 短路：if 真则后续 elif/else 不评估不执行
+	_load_text([
+		"if a >= 5",
+		"    var hit = 1",
+		"elif a >= 5",
+		"    var hit = 2",
+		"else",
+		"    var hit = 3",
 	])
 	SM.run_script()
 	_assert(G.vars.get("hit", 0.0) == 1.0, "if 真时 elif/else 不得执行（短路），实际 %s" % G.vars.get("hit"))
 	_assert(SM._execution_stack.is_empty(), "短路后执行栈应为空")
 
 	# elif 真则 else 跳过
-	_load_seq([
-		_ins(Instruction.Head.IF, ["a", "<", "5"]),
-		_ins(Instruction.Head.VAR_SET, ["hit", "1"]),
-		_ins(Instruction.Head.ELSE_IF, ["a", "==", "5"]),
-		_ins(Instruction.Head.VAR_SET, ["hit", "2"]),
-		_ins(Instruction.Head.ELSE),
-		_ins(Instruction.Head.VAR_SET, ["hit", "3"]),
-		_ins(Instruction.Head.END_IF),
+	_load_text([
+		"if a < 5",
+		"    var hit = 1",
+		"elif a == 5",
+		"    var hit = 2",
+		"else",
+		"    var hit = 3",
 	])
 	SM.run_script()
 	_assert(G.vars.get("hit", 0.0) == 2.0, "elif 真时 else 不得执行，实际 %s" % G.vars.get("hit"))
 	_assert(SM._execution_stack.is_empty(), "elif 命中后执行栈应为空")
 
-	# 外层假：内层整条 if/elif/else 链不得到达（跳转表链式正确性）
-	_load_seq([
-		_ins(Instruction.Head.IF, ["a", "<", "0"]),   # 外层假
-		_ins(Instruction.Head.IF, ["a", ">=", "5"]),  # 内层虽真，不得到达
-		_ins(Instruction.Head.VAR_SET, ["hit", "1"]),
-		_ins(Instruction.Head.ELSE),
-		_ins(Instruction.Head.VAR_SET, ["hit", "2"]),
-		_ins(Instruction.Head.END_IF),
-		_ins(Instruction.Head.END_IF),
-		_ins(Instruction.Head.VAR_SET, ["hit", "3"]),  # 结构后继续
+	# 外层假：内层整条链不得到达（编译期目标回填正确性）
+	_load_text([
+		"if a < 0",
+		"    if a >= 5",
+		"        var hit = 1",
+		"    else",
+		"        var hit = 2",
+		"var hit = 3",
 	])
 	SM.run_script()
 	_assert(G.vars.get("hit", 0.0) == 3.0, "外层假应跳过整个内层链，实际 %s" % G.vars.get("hit"))
 	_assert(SM._execution_stack.is_empty(), "外层跳过后执行栈应为空")
 
+	# --- 复合条件（and/or/not/括号/裸变量真值）---
+
+	# and 优先于 or：a>=1(T) or b>=1(F) and b==9(F) → T or F = T
+	_load_text([
+		"if a >= 1 or b >= 1 and b == 9",
+		"    var hit = 1",
+		"else",
+		"    var hit = 2",
+	])
+	SM.run_script()
+	_assert(G.vars.get("hit", 0.0) == 1.0, "and 应优先于 or（T or F and F = T），实际 %s" % G.vars.get("hit"))
+
+	# 括号覆盖优先级：(T or F) and F = F
+	_load_text([
+		"if (a >= 1 or b >= 1) and b == 9",
+		"    var hit = 1",
+		"else",
+		"    var hit = 2",
+	])
+	SM.run_script()
+	_assert(G.vars.get("hit", 0.0) == 2.0, "括号应改变优先级（(T or F) and F = F），实际 %s" % G.vars.get("hit"))
+
+	# not 与括号嵌套：not (T and T) = F
+	_load_text([
+		"if not (a >= 5 and b == 0)",
+		"    var hit = 1",
+		"else",
+		"    var hit = 2",
+	])
+	SM.run_script()
+	_assert(G.vars.get("hit", 0.0) == 2.0, "not(真 and 真) 应为假，实际 %s" % G.vars.get("hit"))
+
+	# 裸变量真值：非 0 为真
+	_load_text(["if a", "    var hit = 1"])
+	SM.run_script()
+	_assert(G.vars.get("hit", 0.0) == 1.0, "裸变量 a=5 应为真")
+	_load_text([
+		"if b",
+		"    var hit = 9",
+		"else",
+		"    var hit = 2",
+	])
+	SM.run_script()
+	_assert(G.vars.get("hit", 0.0) == 2.0, "裸变量 b=0 应为假")
+	_load_text(["if not b", "    var hit = 1"])
+	SM.run_script()
+	_assert(G.vars.get("hit", 0.0) == 1.0, "not b（b=0）应为真")
+
+	# 变量与变量比较
+	_load_text(["if a == a", "    var hit = 1"])
+	SM.run_script()
+	_assert(G.vars.get("hit", 0.0) == 1.0, "变量与自身应 ==")
+
 	# --- 与对话回合的交互 ---
 
 	# 分支内对话停止点：执行栈跨回合存活；else 分支对话不得显示
-	_load_seq([
-		_ins(Instruction.Head.IF, ["a", ">=", "5"]),
-		_dlg("真分支"),
-		_ins(Instruction.Head.ELSE),
-		_dlg("假分支"),
-		_ins(Instruction.Head.END_IF),
-		_dlg("结构后"),
+	_load_text([
+		"if a >= 5",
+		"    引路人: 真分支",
+		"else",
+		"    引路人: 假分支",
+		"引路人: 结构后",
 	])
 	SM.run_script()  # 停在真分支对话
 	_assert(SM.dialogue_ui.current_dialogue_content == "真分支",
@@ -231,12 +300,11 @@ func _test_condition() -> void:
 		"else 分支对话不得显示，实际 %s" % SM.dialogue_ui.current_dialogue_content)
 
 	# 假分支对话不显示（else 命中）
-	_load_seq([
-		_ins(Instruction.Head.IF, ["a", "<", "0"]),
-		_dlg("假分支"),
-		_ins(Instruction.Head.ELSE),
-		_dlg("else分支"),
-		_ins(Instruction.Head.END_IF),
+	_load_text([
+		"if a < 0",
+		"    引路人: 假分支",
+		"else",
+		"    引路人: else分支",
 	])
 	SM.run_script()
 	_assert(SM.dialogue_ui.current_dialogue_content == "else分支",
@@ -245,40 +313,34 @@ func _test_condition() -> void:
 	# --- 与选项的交互 ---
 
 	# 分支内选项组：条件真时选项照常弹出并可选
-	_load_seq([
-		_ins(Instruction.Head.IF, ["a", ">=", "5"]),    # 0
-		_ins(Instruction.Head.OPTION, ["甲"]),           # 1
-		_ins(Instruction.Head.VAR_SET, ["hit", "1"]),    # 2
-		_ins(Instruction.Head.OPTION, ["乙"]),           # 3
-		_ins(Instruction.Head.VAR_SET, ["hit", "2"]),    # 4
-		_ins(Instruction.Head.OPTION_END),               # 5
-		_ins(Instruction.Head.VAR_SET, ["after", "1"]),  # 6
-		_ins(Instruction.Head.END_IF),                   # 7
+	_load_text([
+		"if a >= 5",
+		"    * 甲",
+		"        var hit = 1",
+		"    * 乙",
+		"        var hit = 2",
+		"    var after = 1",
 	])
 	SM.run_script()
 	_assert(SM._option_waiting, "分支内选项组应挂起等待")
-	var branch_indices: Array[int] = [2, 4]
-	SM._on_option_made(0, branch_indices)
+	SM._on_option_made(0, _visible_option_indices())
 	_assert(G.vars.get("hit", 0.0) == 1.0 and G.vars.get("after", 0.0) == 1.0,
 		"分支内选项选择后应走完分支体，实际 hit=%s after=%s" % [G.vars.get("hit"), G.vars.get("after")])
 	_assert(SM._execution_stack.is_empty(), "分支内选项结束后执行栈应为空")
 
 	# 选项块内 if 分流
-	_load_seq([
-		_ins(Instruction.Head.OPTION, ["甲"]),           # 0
-		_ins(Instruction.Head.IF, ["a", ">=", "5"]),     # 1
-		_ins(Instruction.Head.VAR_SET, ["hit", "1"]),    # 2
-		_ins(Instruction.Head.ELSE),                     # 3
-		_ins(Instruction.Head.VAR_SET, ["hit", "2"]),    # 4
-		_ins(Instruction.Head.END_IF),                   # 5
-		_ins(Instruction.Head.OPTION, ["乙"]),           # 6
-		_ins(Instruction.Head.VAR_SET, ["hit", "3"]),    # 7
-		_ins(Instruction.Head.OPTION_END),               # 8
+	_load_text([
+		"* 甲",
+		"    if a >= 5",
+		"        var hit = 1",
+		"    else",
+		"        var hit = 2",
+		"* 乙",
+		"    var hit = 3",
 	])
 	SM.run_script()
 	_assert(SM._option_waiting, "选项组应挂起等待")
-	var outer_indices: Array[int] = [1, 7]
-	SM._on_option_made(0, outer_indices)  # 选甲 → 块内 if 真
+	SM._on_option_made(0, _visible_option_indices())  # 选甲 → 块内 if 真
 	_assert(G.vars.get("hit", 0.0) == 1.0, "选项块内 if 真应走真分支，实际 %s" % G.vars.get("hit"))
 	_assert(SM._execution_stack.is_empty(), "选项块内 if 结束后执行栈应为空")
 
@@ -286,13 +348,12 @@ func _test_condition() -> void:
 
 	# SKIP 穿越分支：真路径对话照样流过，假分支不显示
 	SM._set_manager_mode(2)  # SKIP
-	_load_seq([
-		_ins(Instruction.Head.IF, ["a", ">=", "5"]),
-		_dlg("SKIP真"),
-		_ins(Instruction.Head.ELSE),
-		_dlg("SKIP假"),
-		_ins(Instruction.Head.END_IF),
-		_dlg("SKIP后"),
+	_load_text([
+		"if a >= 5",
+		"    引路人: SKIP真",
+		"else",
+		"    引路人: SKIP假",
+		"引路人: SKIP后",
 	])
 	SM.run_script()
 	await create_timer(0.5).timeout  # SKIP 以 0 延时定时器连续推进
@@ -301,12 +362,12 @@ func _test_condition() -> void:
 	_assert(SM._execution_stack.is_empty(), "SKIP 穿越后执行栈应为空")
 	SM._set_manager_mode(0)  # 还原 INTERACT
 
-	# 空栈守卫回归：孤立 ELSE/ELSE_IF/END_IF 不崩溃、不死循环、栈仍为空
+	# 空栈守卫回归：孤立 ELSE/ELSE_IF/END_IF 不崩溃、不死循环、顺序继续
 	#（编译期已拦截，此处锁运行期防御行为；产物损毁时顺序继续优于崩死）
 	_load_seq([
 		_ins(Instruction.Head.ELSE),
 		_ins(Instruction.Head.END_IF),
-		_ins(Instruction.Head.ELSE_IF, ["a", "==", "5"]),
+		_ins(Instruction.Head.ELSE_IF),
 		_ins(Instruction.Head.VAR_SET, ["hit", "9"]),
 	])
 	SM.run_script()
@@ -314,35 +375,34 @@ func _test_condition() -> void:
 	_assert(G.vars.get("hit", 0.0) == 9.0, "守卫后应顺序继续执行")
 
 
+## 选项执行语义：条件过滤 / 路由 / 空组跳过（text-driven，与 _test_condition 同构造路径）
 func _test_option() -> void:
 	G.vars.clear()
 	G.vars["a"] = 1.0
-	# 条件过滤：B 条件假被过滤，只剩 A/C；选第 2 项应路由到 C 分支
-	_load_seq([
-		_ins(Instruction.Head.OPTION, ["甲"]),
-		_ins(Instruction.Head.VAR_SET, ["pick", "1"]),
-		_ins(Instruction.Head.OPTION, ["乙", "a", ">", "5"]),
-		_ins(Instruction.Head.VAR_SET, ["pick", "2"]),
-		_ins(Instruction.Head.OPTION, ["丙", "a", "<=", "1"]),
-		_ins(Instruction.Head.VAR_SET, ["pick", "3"]),
-		_ins(Instruction.Head.OPTION_END),
-		_ins(Instruction.Head.VAR_SET, ["after", "1"]),
+	# 条件过滤：乙条件假被过滤，只剩甲/丙；选可见第 2 项应路由到丙分支
+	_load_text([
+		"* 甲",
+		"    var pick = 1",
+		"* 乙 if:a > 5",
+		"    var pick = 2",
+		"* 丙 if:a <= 1",
+		"    var pick = 3",
+		"var after = 1",
 	])
 	SM.run_script()  # 停在选项（返回 true）
 	_assert(SM._option_waiting, "选项应挂起等待")
-	# 过滤后剩 2 个选项，选索引 1（丙）
-	var indices: Array[int] = [1, 5]  # 各 OPTION 的下一行
-	SM._on_option_made(1, indices)
+	var indices := _visible_option_indices()
+	_assert(indices.size() == 2, "条件过滤后应剩 2 个选项，实际 %d" % indices.size())
+	SM._on_option_made(1, indices)  # 选可见第 2 项（丙）
 	_assert(G.vars.get("pick", 0.0) == 3.0, "条件过滤后选第 2 项应路由丙，实际 %s" % G.vars.get("pick"))
 	_assert(G.vars.get("after", 0.0) == 1.0, "分支结束后应执行到 OPTION_END 之后")
 
 	# 空选项组：全部条件假 → 跳过整组不弹 UI
 	G.vars.clear()
-	_load_seq([
-		_ins(Instruction.Head.OPTION, ["甲", "x", ">", "1"]),
-		_ins(Instruction.Head.VAR_SET, ["bad", "1"]),
-		_ins(Instruction.Head.OPTION_END),
-		_ins(Instruction.Head.VAR_SET, ["after", "1"]),
+	_load_text([
+		"* 甲 if:x > 1",
+		"    var bad = 1",
+		"var after = 1",
 	])
 	SM.run_script()
 	_assert(not SM._option_waiting, "空选项组不应挂起")

@@ -4,7 +4,7 @@ const LOG_TAG := "Importer"
 ## BGalS v2 编译前端：行分类 → 缩进块拍平 → 线性 GalEventItemSequence。
 ## 产物中 基类 Instruction = 独立指令，PrevInstruction/PostInstruction = 前/后指令。
 
-const COMPILER_VERSION := "bgals2.2"
+const COMPILER_VERSION := "bgals2.3"
 
 var check: bool = true
 var read_dir: String = "res://scripts"
@@ -36,8 +36,6 @@ signal res_update_load_finished
 
 # 诊断收集：[{file, line, level, msg}]
 var _diagnostics: Array[Dictionary] = []
-
-static var _regex_condition: RegEx = null
 
 
 func _ready() -> void:
@@ -293,6 +291,9 @@ static func parse_script(lines: PackedStringArray, file_name: String, diags: Arr
 	# 文件结束：关闭未闭合块（root 伪帧除外）
 	while block_stack.size() > 1:
 		_close_block(block_stack.pop_back(), seq)
+
+	# 条件结构目标回填：分支跳转目标直接烧进指令参数（运行时无跳转表、无链式扫描）
+	_resolve_condition_targets(seq, diags, file_name)
 
 	return gal_event_item_sequence
 
@@ -659,6 +660,9 @@ static func _parse_var(rest: Array[String], diags: Array[Dictionary], file: Stri
 	# 变量名必须合法，否则永远无法被 {var} 插值读取（渲染器按 is_valid_identifier 判定）
 	if not key.is_valid_identifier():
 		return _fail(diags, file, line_no, "var 变量名必须是合法标识符（字母/下划线开头）: " + key)
+	# 条件保留字：变量取这名后在条件表达式里会被解析为逻辑运算符
+	if key in ["and", "or", "not"]:
+		return _fail(diags, file, line_no, "var 变量名不得为条件保留字（and/or/not）: " + key)
 
 	# var x = random 0 100
 	if op == "=" and rest.size() >= 5 and rest[2] == "random":
@@ -764,13 +768,15 @@ static func _emit_option(text: String, seq: Array[GalEventItem], diags: Array[Di
 		else:
 			option_text = body
 
-	if cond.is_empty():
-		seq.append(Instruction.new(Instruction.Head.OPTION, [option_text]))
-	else:
-		var parts := _parse_condition(cond, diags, file, line_no)
-		if parts.is_empty():
+	var tokens: Array = []
+	if not cond.is_empty():
+		var parsed: Variant = _parse_condition_expr(cond, diags, file, line_no)
+		if parsed == null:
 			return
-		seq.append(Instruction.new(Instruction.Head.OPTION, [option_text, parts[0], parts[1], parts[2]]))
+		tokens = parsed
+	var ins := Instruction.new(Instruction.Head.OPTION, [option_text])
+	ins.params[1] = tokens
+	seq.append(ins)
 
 
 static func _emit_condition_head(kind: LineKind, text: String, seq: Array[GalEventItem], diags: Array[Dictionary], file: String, line_no: int) -> void:
@@ -779,11 +785,12 @@ static func _emit_condition_head(kind: LineKind, text: String, seq: Array[GalEve
 		return
 	var key_word := "if" if kind == LineKind.IF_HEAD else "elif"
 	var cond := _strip_inline_comment(text.substr(key_word.length()).strip_edges())
-	var parts := _parse_condition(cond, diags, file, line_no)
-	if parts.is_empty():
+	var tokens: Variant = _parse_condition_expr(cond, diags, file, line_no)
+	if tokens == null:
 		return
-	var head := Instruction.Head.IF if kind == LineKind.IF_HEAD else Instruction.Head.ELSE_IF
-	seq.append(Instruction.new(head, parts))
+	var ins := Instruction.new(Instruction.Head.IF if kind == LineKind.IF_HEAD else Instruction.Head.ELSE_IF)
+	ins.params[0] = tokens
+	seq.append(ins)
 
 
 ## 行内注释截断（引号外 //）；选项/条件行专用，指令行由 _split_cli_args 处理
@@ -801,28 +808,209 @@ static func _strip_inline_comment(text: String) -> String:
 	return text
 
 
-## 条件表达式：<左值> <比较符> <右值>（比较符两侧空格可选）
-## 返回 [left, op, right]；失败返回空数组
-static func _parse_condition(cond: String, diags: Array[Dictionary], file: String, line_no: int) -> Array[String]:
-	if _regex_condition == null:
-		_regex_condition = RegEx.new()
-		_regex_condition.compile("^(.+?)\\s*(==|!=|>=|<=|>|<)\\s*(.+?)$")
-	var m := _regex_condition.search(cond.strip_edges())
-	if m == null:
-		_diagnose_static(diags, file, line_no, "error", "条件表达式无法解析: " + cond + "（应为 <左值> <比较符> <右值>，比较符仅 == != > >= < <=）")
-		return []
-	var op := m.get_string(2)
-	var left := m.get_string(1).strip_edges()
-	var right := m.get_string(3).strip_edges()
-	# 操作数校验：左值必须是变量名，右值必须是数字或变量名
-	# （字面量左值会被运行时按变量名查表得 0，静默走错分支）
-	if not left.is_valid_identifier():
-		_diagnose_static(diags, file, line_no, "error", "条件左值必须是变量名: " + left)
-		return []
-	if not right.is_valid_float() and not right.is_valid_identifier():
-		_diagnose_static(diags, file, line_no, "error", "条件右值必须是数字或变量名: " + right)
-		return []
-	return [left, op, right]
+## 条件表达式 → 后缀记号流（Instruction.CondTag）。
+## 文法（优先级 或 < 与 < 非 < 比较 < 原子）：
+##   or   := and ("or" and)*
+##   and  := not ("and" not)*
+##   not  := "not" not | "(" or ")" | comparison
+##   comparison := 操作数 比较符 操作数 | 裸变量（真值口径：!= 0）
+## 返回 Array；失败返回 null（已记录诊断）。操作数仅为变量名或数字字面量（无算术运算）
+static func _parse_condition_expr(text: String, diags: Array[Dictionary], file: String, line_no: int) -> Variant:
+	var tokens: Variant = _tokenize_condition(text, diags, file, line_no)
+	if tokens == null:
+		return null
+	var p := {"t": tokens, "i": 0, "diags": diags, "file": file, "line": line_no}
+	var out: Variant = _cond_or(p)
+	if out == null:
+		return null
+	if p["i"] != (tokens as Array).size():
+		_cond_err(p, "条件表达式尾部有多余内容（缺少 and/or 连接？）")
+		return null
+	return out
+
+
+## 条件词法：数字/变量/比较符/括号/and/or/not。失败返回 null（已记录诊断）
+static func _tokenize_condition(text: String, diags: Array[Dictionary], file: String, line_no: int) -> Variant:
+	const STOP := " \t()<>=!"
+	var tokens: Array = []
+	var i := 0
+	while i < text.length():
+		var c := text[i]
+		if c == " " or c == "\t":
+			i += 1
+		elif c == "(":
+			tokens.append(["lp", ""])
+			i += 1
+		elif c == ")":
+			tokens.append(["rp", ""])
+			i += 1
+		elif i + 1 < text.length() and text.substr(i, 2) in ["==", "!=", ">=", "<="]:
+			tokens.append(["cmp", text.substr(i, 2)])
+			i += 2
+		elif c == ">" or c == "<":
+			tokens.append(["cmp", c])
+			i += 1
+		elif c == "=" or c == "!":
+			_diagnose_static(diags, file, line_no, "error",
+				"条件中无法识别的符号: '%s'（等值比较是 ==，不等是 !=）" % (text.substr(i, 2).strip_edges()))
+			return null
+		else:
+			var j := i
+			while j < text.length() and not STOP.contains(text[j]):
+				j += 1
+			var word := text.substr(i, j - i)
+			if word in ["and", "or", "not"]:
+				tokens.append([word, ""])
+			elif word.is_valid_float():
+				tokens.append(["num", word])
+			elif word.is_valid_identifier():
+				tokens.append(["var", word])
+			else:
+				_diagnose_static(diags, file, line_no, "error", "条件中无法识别的记号: " + word)
+				return null
+			i = j
+	return tokens
+
+
+static func _cond_peek_token(p: Dictionary) -> Variant:
+	var tokens: Array = p["t"]
+	if p["i"] >= tokens.size():
+		return null
+	return tokens[p["i"]]
+
+
+static func _cond_peek(p: Dictionary) -> String:
+	var t: Variant = _cond_peek_token(p)
+	return "" if t == null else t[0]
+
+
+static func _cond_err(p: Dictionary, msg: String) -> void:
+	_diagnose_static(p["diags"], p["file"], p["line"], "error", msg)
+
+
+static func _cond_or(p: Dictionary) -> Variant:
+	var left: Variant = _cond_and(p)
+	if left == null:
+		return null
+	while _cond_peek(p) == "or":
+		p["i"] += 1
+		var right: Variant = _cond_and(p)
+		if right == null:
+			_cond_err(p, "or 后缺少条件")
+			return null
+		left = (left as Array) + (right as Array) + [[Instruction.CondTag.OR]]
+	return left
+
+
+static func _cond_and(p: Dictionary) -> Variant:
+	var left: Variant = _cond_not(p)
+	if left == null:
+		return null
+	while _cond_peek(p) == "and":
+		p["i"] += 1
+		var right: Variant = _cond_not(p)
+		if right == null:
+			_cond_err(p, "and 后缺少条件")
+			return null
+		left = (left as Array) + (right as Array) + [[Instruction.CondTag.AND]]
+	return left
+
+
+static func _cond_not(p: Dictionary) -> Variant:
+	if _cond_peek(p) == "not":
+		p["i"] += 1
+		var inner: Variant = _cond_not(p)
+		if inner == null:
+			_cond_err(p, "not 后缺少条件")
+			return null
+		return (inner as Array) + [[Instruction.CondTag.NOT]]
+	return _cond_primary(p)
+
+
+static func _cond_primary(p: Dictionary) -> Variant:
+	var t: Variant = _cond_peek_token(p)
+	if t == null:
+		_cond_err(p, "条件表达式不完整或缺失")
+		return null
+	match t[0]:
+		"lp":
+			p["i"] += 1
+			var inner: Variant = _cond_or(p)
+			if inner == null:
+				return null
+			if _cond_peek(p) != "rp":
+				_cond_err(p, "括号不配对：缺少 )")
+				return null
+			p["i"] += 1
+			return inner
+		"var", "num":
+			p["i"] += 1
+			if _cond_peek(p) == "cmp":
+				# 比较式：左值必须是变量名（字面量左值会被运行时按未定义变量静默按 0 比较）
+				if t[0] == "num":
+					_cond_err(p, "条件比较式左值必须是变量名: " + t[1])
+					return null
+				var op: String = _cond_peek_token(p)[1]
+				p["i"] += 1
+				var rhs: Variant = _cond_peek_token(p)
+				if rhs == null or (rhs[0] != "var" and rhs[0] != "num"):
+					_cond_err(p, "比较符 %s 后缺少操作数（数字或变量名）" % op)
+					return null
+				p["i"] += 1
+				return [_cond_push(t), _cond_push(rhs), [Instruction.CondTag.CMP, op]]
+			# 裸变量真值（裸数字无意义，拒掉）
+			if t[0] == "num":
+				_cond_err(p, "条件原子必须是变量名或比较式，不能是裸数字: " + t[1])
+				return null
+			return [_cond_push(t)]
+		_:
+			_cond_err(p, "此处缺少变量名或比较式: " + t[0])
+			return null
+
+
+## 操作数记号 → 压栈记号
+static func _cond_push(t: Array) -> Array:
+	if t[0] == "num":
+		return [Instruction.CondTag.PUSH_NUM, t[1].to_float()]
+	return [Instruction.CondTag.PUSH_VAR, t[1]]
+
+
+## 条件结构目标回填（编译期后处理）：分支跳转目标直接写入指令参数，
+## 运行时按参数跳转（无跳转表、无链式扫描）。结构配对已由行解析保证，此处仅防御性校验。
+## 参数契约：IF [tokens, next]；ELSE_IF [tokens, next, end]；ELSE [end]；END_IF []
+static func _resolve_condition_targets(seq: Array[GalEventItem], diags: Array[Dictionary], file: String) -> void:
+	var heads: Array[int] = []      # 未闭合分支头索引栈（每层链的当前分支头）
+	var chains: Array[Array] = []   # 每层链的全部分支头索引（end_target 回填用）
+	for i in range(seq.size()):
+		var item := seq[i]
+		if not (item is Instruction):
+			continue
+		match (item as Instruction).head:
+			Instruction.Head.IF:
+				heads.append(i)
+				chains.append([i])
+			Instruction.Head.ELSE_IF, Instruction.Head.ELSE:
+				if heads.is_empty():
+					_diagnose_static(diags, file, 0, "error", "内部错误：elif/else 无配对 if")
+					continue
+				(seq[heads[-1]] as Instruction).params[1] = i  # 上一分支假 → 跳到本分支头
+				heads[-1] = i
+				chains[-1].append(i)
+			Instruction.Head.END_IF:
+				if heads.is_empty():
+					_diagnose_static(diags, file, 0, "error", "内部错误：endif 无配对 if")
+					continue
+				var last := seq[heads.pop_back()] as Instruction
+				if last.head != Instruction.Head.ELSE:  # ELSE 无 next 槽位（无条件分支）
+					last.params[1] = i  # 末分支假 → END_IF
+				for head_idx in chains.pop_back():
+					var h := seq[head_idx] as Instruction
+					if h.head == Instruction.Head.ELSE_IF:
+						h.params[2] = i  # end_target
+					elif h.head == Instruction.Head.ELSE:
+						h.params[0] = i  # end_target
+	if not heads.is_empty():
+		_diagnose_static(diags, file, 0, "error", "内部错误：条件结构未闭合")
 
 
 # --- 对话行 ---
