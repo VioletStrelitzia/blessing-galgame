@@ -46,6 +46,7 @@ func _run() -> void:
 	_test_trans_no_controller()
 	await _test_three_timings()
 	_test_renderer()
+	await _test_audio()
 
 	print("EXECUTOR_TEST_DONE ok=", _ok, " failures=", _failures)
 	quit(0 if _ok else 1)
@@ -366,3 +367,238 @@ func _test_renderer() -> void:
 	# 未定义插值按 0
 	r = DialogueRenderer.render("值{undef_var}。", G.vars)
 	_assert(r["text"] == "值0。", "未定义插值应按 0，实际「%s」" % r["text"])
+
+
+## 音频指令执行语义：headless 无声驱动下只断言状态位（playing/volume_db/loop 标志），不断言听感
+## AudioManager 无 class_name，-s 下只能 root.get_node 动态调用；Bus 枚举硬编码（MASTER=0, MUSIC=1, SFX=2, VOICE=3）
+func _test_audio() -> void:
+	var AM = root.get_node("AudioManager")
+	var music_mgr = AM.music_manager
+	var sfx_mgr = AM.sfx_manager
+	var voice_mgr = AM.voice_manager
+	var music_bus := AudioServer.get_bus_index("Music")
+	var saved_db := AudioServer.get_bus_volume_db(music_bus)
+	# jump main_menu 用例会在主菜单起 BGM，先清场
+	AM.stop_music(0.0)
+	AM.stop_all_sfx(0.0)
+	AM.stop_voice(0.0)
+	await process_frame
+	await process_frame
+
+	# 双重衰减回归：总线 -6dB 时播放器 volume_db 应 tween 到曲目响度 0dB，不背总线快照
+	AudioServer.set_bus_volume_db(music_bus, -6.0)
+	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm", "0", "true", "0", "1.0"])])
+	SM.run_script()
+	await process_frame
+	await process_frame
+	var cur: AudioStreamPlayer = music_mgr.players[music_mgr.cur_player_index]
+	_assert(cur.playing, "music play 后当前播放器应在播")
+	_assert(absf(cur.volume_db) < 0.01,
+		"双重衰减回归：播放器 volume_db 应为 0dB（不背总线 -6 快照），实际 %s" % cur.volume_db)
+
+	# volume 参数落盘：0.5 → linear_to_db(0.5)
+	AM.stop_music(0.0)
+	await process_frame
+	await process_frame
+	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm", "0", "true", "0", "0.5"])])
+	SM.run_script()
+	await process_frame
+	await process_frame
+	cur = music_mgr.players[music_mgr.cur_player_index]
+	_assert(absf(cur.volume_db - linear_to_db(0.5)) < 0.01,
+		"music volume:0.5 应落盘为 %.2f dB，实际 %s" % [linear_to_db(0.5), cur.volume_db])
+
+	# pause/resume 作用于全部在播音轨；stop 后全停
+	AM.pause_music()
+	var any_unpaused := false
+	for p in music_mgr.players:
+		if p.playing and not p.stream_paused:
+			any_unpaused = true
+	_assert(not any_unpaused, "music pause 应暂停所有在播音轨")
+	AM.resume_music()
+	_assert(cur.playing and not cur.stream_paused, "music resume 后应恢复播放")
+	AM.stop_music(0.0)
+	await process_frame
+	await process_frame
+	var any_music := false
+	for p in music_mgr.players:
+		if p.playing:
+			any_music = true
+	_assert(not any_music, "music stop 后应无在播音轨")
+
+	# sfx 空闲优先：连播两条各占一台播放器
+	_load_seq([_ins(Instruction.Head.SFX_PLAY, ["demo_bgm", "0", "1.0", "false"]),
+		_ins(Instruction.Head.SFX_PLAY, ["demo_bgm", "0", "1.0", "false"])])
+	SM.run_script()
+	var playing_sfx := 0
+	for p in sfx_mgr.players:
+		if p.playing:
+			playing_sfx += 1
+	_assert(playing_sfx == 2, "两条 sfx 应各占一台播放器，实际 %d" % playing_sfx)
+
+	# sfx stop 指定引用：按流身份匹配停止（两台都是 demo_bgm，应全停）
+	_load_seq([_ins(Instruction.Head.SFX_STOP, ["demo_bgm", "0"])])
+	SM.run_script()
+	await process_frame
+	await process_frame
+	playing_sfx = 0
+	for p in sfx_mgr.players:
+		if p.playing:
+			playing_sfx += 1
+	_assert(playing_sfx == 0, "sfx stop demo_bgm 后应全停，实际 %d" % playing_sfx)
+
+	# sfx loop:true 设置流内循环标志
+	_load_seq([_ins(Instruction.Head.SFX_PLAY, ["demo_bgm", "0", "1.0", "true"])])
+	SM.run_script()
+	var wav := ResourceLoader.load("res://Resources/audio/demo_bgm.wav") as AudioStreamWAV
+	_assert(wav != null and wav.loop_mode == AudioStreamWAV.LOOP_FORWARD,
+		"sfx loop:true 应设置流内循环标志")
+	AM.stop_all_sfx(0.0)
+
+	# voice：play 在播 + volume 落盘；voice stop 停止
+	_load_seq([_ins(Instruction.Head.VOICE_PLAY, ["demo_bgm", "0", "0.5"])])
+	SM.run_script()
+	_assert(voice_mgr.player.playing, "voice play 后应在播")
+	_assert(absf(voice_mgr.player.volume_db - linear_to_db(0.5)) < 0.01,
+		"voice volume:0.5 应落盘，实际 %s" % voice_mgr.player.volume_db)
+	_load_seq([_ins(Instruction.Head.VOICE_STOP, ["0"])])
+	SM.run_script()
+	await process_frame
+	await process_frame
+	_assert(not voice_mgr.player.playing, "voice stop 后应停止")
+
+	# --- 评审修复回归 ---
+
+	# 同曲守卫不得吞掉「淡出中的同曲重开」（读档/跳幕同 BGM 场景）
+	AM.stop_music(0.0)
+	await process_frame
+	await process_frame
+	var s_cached = root.get_node("ResourceManager").load("audio", "demo_bgm")
+	AM.play_music(s_cached, 0, 0, 0, true, 1.0)
+	await process_frame
+	await process_frame
+	AM.stop_music(1.0)  # 1 秒淡出窗口内
+	AM.play_music(s_cached, 0, 0, 0, true, 1.0)  # 同曲立即重开
+	await create_timer(1.5).timeout
+	var still_playing := false
+	for p in music_mgr.players:
+		if p.playing:
+			still_playing = true
+	_assert(still_playing, "淡出窗口内同曲重开不应被守卫吞掉（A2 回归）")
+
+	# 快速连切 A→B→C：C 的音量不得被残留淡入 tween 劫持（播放器复用 tween 防护）
+	AM.stop_music(0.0)
+	await process_frame
+	await process_frame
+	var s_b = ResourceLoader.load("res://Resources/audio/demo_bgm.wav", "", ResourceLoader.CACHE_MODE_IGNORE)
+	var s_c = ResourceLoader.load("res://Resources/audio/demo_bgm.wav", "", ResourceLoader.CACHE_MODE_IGNORE)
+	AM.play_music(s_cached, 0, 1.0, 2.0, true, 0.2)  # A：2 秒淡入向 0.2
+	await process_frame
+	AM.play_music(s_b, 0, 0, 0, true, 1.0)  # B
+	await process_frame
+	AM.play_music(s_c, 0, 0, 0, true, 1.0)  # C（轮转回 A 的播放器）
+	await create_timer(0.5).timeout
+	cur = music_mgr.players[music_mgr.cur_player_index]
+	_assert(absf(cur.volume_db) < 0.01,
+		"连切后当前音轨音量应为 0dB（不被残留 tween 劫持），实际 %s" % cur.volume_db)
+	AM.stop_music(0.0)
+	await process_frame
+	await process_frame
+
+	# music volume 子动作：不重启曲目直接调响度
+	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm", "0", "true", "0", "1.0"])])
+	SM.run_script()
+	await process_frame
+	await process_frame
+	_load_seq([_ins(Instruction.Head.MUSIC_VOLUME, ["0.3", "0"])])
+	SM.run_script()
+	await process_frame
+	await process_frame
+	cur = music_mgr.players[music_mgr.cur_player_index]
+	_assert(absf(cur.volume_db - linear_to_db(0.3)) < 0.01,
+		"music volume 0.3 应落盘，实际 %s" % cur.volume_db)
+	AM.stop_music(0.0)
+
+	# sfx stop 按流身份匹配：只停指定引用，不误停其他实例
+	var s_fresh = ResourceLoader.load("res://Resources/audio/demo_bgm.wav", "", ResourceLoader.CACHE_MODE_IGNORE)
+	_load_seq([_ins(Instruction.Head.SFX_PLAY, ["demo_bgm", "0", "1.0", "false"])])  # 缓存实例
+	SM.run_script()
+	AM.play_sfx(s_fresh, 0, 1.0, false)  # 独立实例
+	_load_seq([_ins(Instruction.Head.SFX_STOP, ["demo_bgm", "0"])])
+	SM.run_script()
+	await process_frame
+	await process_frame
+	var cached_playing := false
+	var fresh_playing := false
+	for p in sfx_mgr.players:
+		if p.playing and p.stream == s_cached:
+			cached_playing = true
+		if p.playing and p.stream == s_fresh:
+			fresh_playing = true
+	_assert(not cached_playing and fresh_playing,
+		"sfx stop 应只停匹配引用（缓存实例停、独立实例仍在播）")
+	AM.stop_all_sfx(0.0)
+	await process_frame
+	await process_frame
+
+	# sfx stop 渐变路径（fade>0，DSL 通路）：先淡出后停止
+	_load_seq([_ins(Instruction.Head.SFX_PLAY, ["demo_bgm", "0", "1.0", "false"])])
+	SM.run_script()
+	_load_seq([_ins(Instruction.Head.SFX_STOP, ["demo_bgm", "0.2"])])
+	SM.run_script()
+	await process_frame
+	var fading := false
+	for p in sfx_mgr.players:
+		if p.playing:
+			fading = true
+	_assert(fading, "sfx stop fade:0.2 后应处于淡出中（尚未停止）")
+	await create_timer(0.4).timeout
+	var any_sfx := false
+	for p in sfx_mgr.players:
+		if p.playing:
+			any_sfx = true
+	_assert(not any_sfx, "sfx 淡出结束后应全部停止")
+
+	# voice 复位共享流的 loop 污染
+	_load_seq([_ins(Instruction.Head.SFX_PLAY, ["demo_bgm", "0", "1.0", "true"])])
+	SM.run_script()
+	AM.stop_all_sfx(0.0)
+	_load_seq([_ins(Instruction.Head.VOICE_PLAY, ["demo_bgm", "0", "1.0"])])
+	SM.run_script()
+	var wav2 := ResourceLoader.load("res://Resources/audio/demo_bgm.wav") as AudioStreamWAV
+	_assert(wav2.loop_mode == AudioStreamWAV.LOOP_DISABLED,
+		"voice 播放应复位流内循环标志（不受先前 sfx loop:true 污染）")
+	AM.stop_voice(0.0)
+
+	# F1 回归：pause → 换曲 → resume 不得双 BGM 同响（旧暂停轨须被换曲停掉）
+	AM.play_music(s_cached, 0, 0, 0, true, 1.0)
+	await process_frame
+	await process_frame
+	AM.pause_music()
+	AM.play_music(s_b, 0, 0, 0, true, 1.0)  # 换曲（旧暂停轨随之停止）
+	await process_frame
+	await process_frame
+	AM.resume_music()
+	await process_frame
+	var sounding := 0
+	for p in music_mgr.players:
+		if p.playing and not p.stream_paused:
+			sounding += 1
+	_assert(sounding == 1, "pause→换曲→resume 后应只有 1 条音轨发声，实际 %d" % sounding)
+
+	# F2 回归：music stop 淡出窗口内的 music volume 不得掐死停止
+	AM.stop_music(1.0)  # 停上一用例的 BGM（1 秒淡出窗口）
+	_load_seq([_ins(Instruction.Head.MUSIC_VOLUME, ["0.3", "0"])])
+	SM.run_script()
+	await create_timer(1.3).timeout
+	var any_music2 := false
+	for p in music_mgr.players:
+		if p.playing:
+			any_music2 = true
+	_assert(not any_music2, "music volume 不得掐死进行中的 music stop（F2 回归）")
+
+	# 门面音量读写按名称解析总线（与设置 UI 同路径）
+	AM.set_volume_db(1, -9.0)
+	_assert(absf(AudioServer.get_bus_volume_db(music_bus) + 9.0) < 0.01,
+		"set_volume_db(MUSIC) 应写入 Music 总线，实际 %s" % AudioServer.get_bus_volume_db(music_bus))
+	AM.set_volume_db(1, saved_db)

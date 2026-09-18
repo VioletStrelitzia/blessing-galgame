@@ -16,10 +16,10 @@ func _ready() -> void:
 
 func initialize_sliders() -> void:
 	# 音量
-	master_bus_slider.value = db_to_linear(AudioServer.get_bus_volume_db(AudioManager.Bus.MASTER))
-	music_bus_slider.value = db_to_linear(AudioServer.get_bus_volume_db(AudioManager.Bus.MUSIC))
-	sfx_bus_slider.value = db_to_linear(AudioServer.get_bus_volume_db(AudioManager.Bus.SFX))
-	voice_bus_slider.value = db_to_linear(AudioServer.get_bus_volume_db(AudioManager.Bus.VOICE))
+	master_bus_slider.value = AudioManager.get_volume(AudioManager.Bus.MASTER)
+	music_bus_slider.value = AudioManager.get_volume(AudioManager.Bus.MUSIC)
+	sfx_bus_slider.value = AudioManager.get_volume(AudioManager.Bus.SFX)
+	voice_bus_slider.value = AudioManager.get_volume(AudioManager.Bus.VOICE)
 	
 	# 文本/自动
 	text_interval_slider.value = Global.text_interval

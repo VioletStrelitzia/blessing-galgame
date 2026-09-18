@@ -131,3 +131,17 @@ static func take_screenshot() -> Image:
 	else:
 		GalLogger.error(LOG_TAG, "无法获取根 Viewport")
 		return null
+
+
+## 设置音频流的流内循环：OGG/MP3 设 loop 标志，WAV 设 loop_mode，其他类型忽略。
+## 注意：WAV 导入时未开循环则 loop_end 为 0，直接置 LOOP_FORWARD 会形成 0 长度死循环
+## 立即结束，须先把 loop_end 补为整曲帧数。
+## 另：ResourceManager 缓存的流是共享资源，此设置会改写缓存副本；
+## 因各播放调用点逐次显式设置，行为仍是逐次确定的。
+static func set_stream_loop(stream: AudioStream, loop: bool) -> void:
+	if stream is AudioStreamOggVorbis or stream is AudioStreamMP3:
+		stream.loop = loop
+	elif stream is AudioStreamWAV:
+		if loop and stream.loop_end <= stream.loop_begin:
+			stream.loop_end = int(stream.get_length() * stream.mix_rate)
+		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD if loop else AudioStreamWAV.LOOP_DISABLED

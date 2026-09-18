@@ -29,6 +29,8 @@ func _ready():
 		var di := DialogueImporter.new()
 		di.read_dir = "res://".path_join(Global.config["scripts"]["read_dir"])
 		di.save_dir = scripts_save_dir
+		# char 实例索引的编译期越界校验上限（JSON 数值读入为 float，需转 int；缺省 -1 不校验）
+		di.char_max = int(Global.config.get("character", {}).get("max", -1))
 		add_child(di)
 		remove_child(di)
 		di.queue_free()

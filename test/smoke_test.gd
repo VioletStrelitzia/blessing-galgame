@@ -95,7 +95,7 @@ func _init() -> void:
 		_assert(has_mount and has_unmount and has_trans and has_wait and has_char_wait_true,
 			"scene3 应含 scene mount/unmount、trans、wait、char wait:true")
 
-	# 对应 story_manager._music_play 里 play_music(stream, pos, loop) 的调用方式
+	# 对应 story_manager._music_play 里 play_music(stream, from, fade, fade, loop, volume) 的调用方式
 	_type_check(true)
 
 # -s 模式下 autoload 与全局类要到主循环初始化后才可用，路径断言须放在这里

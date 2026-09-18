@@ -2,11 +2,16 @@ class_name SFXAudioPlayerManager extends Node
 const LOG_TAG := "SFX"
 
 
-@export var player_num: int = 6
-@export var cur_player_index: int = 0
 @export var players: Array[AudioStreamPlayer] = []
 
-var _bus_name: String
+var cur_player_index: int = 0
+
+## 各播放器当前承载的流引用（sfx stop 按流身份匹配的元数据）
+var _streams: Dictionary = {}
+## 各播放器当前流的循环标志（全忙抢占策略用）
+var _loops: Dictionary = {}
+## 各播放器进行中的淡出 Tween（重用时须终止，防止旧回调掐断新播放）
+var _fade_tweens: Dictionary = {}
 
 
 func _init() -> void:
@@ -14,26 +19,68 @@ func _init() -> void:
 
 
 func set_bus(bus_name: String):
-	self._bus_name = bus_name
 	for player in players:
 		player.bus = bus_name
 	GalLogger.info(LOG_TAG, "音效管理器已设置总线为: " + bus_name)
 
 
-func play(audio: AudioStream, offset: float = 0):
-	var next_player_index = (cur_player_index + 1) % player_num
-	var next_player = players[next_player_index]
+func play(audio: AudioStream, from_position: float = 0.0, volume: float = 1.0, loop: bool = false) -> void:
+	var player := _pick_player()
+	cur_player_index = players.find(player)
+	_kill_fade_tween(player)
 
-	# 在播放前，获取 SFX 总线的当前音量并应用到播放器上
-	var bus_index = AudioServer.get_bus_index(_bus_name)
-	if bus_index != -1:
-		next_player.volume_db = AudioServer.get_bus_volume_db(bus_index)
-	else:
-		# 如果总线不存在，则默认使用 0dB
-		next_player.volume_db = 0.0
-		GalLogger.warn(LOG_TAG, "在音效管理器中找不到总线: '%s'" % _bus_name)
+	# 流内循环；缓存流是共享资源，逐次显式设置保证确定性（见 Utils.set_stream_loop）
+	Utils.set_stream_loop(audio, loop)
+	player.stop()
+	# 播放器 volume_db 只承载曲目自身音量（线性），总线音量由总线单独衰减
+	player.volume_db = linear_to_db(volume)
+	player.stream = audio
+	_streams[player] = audio
+	_loops[player] = loop
+	player.play(from_position)
 
-	next_player.stream = audio
-	next_player.play(offset)
-	
-	cur_player_index = next_player_index
+
+## 按流身份匹配停止：tween 淡出到 -80dB 后停止；fade <= 0 硬停
+func stop(audio: AudioStream, fade: float = 0.3) -> void:
+	for player in players:
+		if player.playing and _streams.get(player) == audio:
+			_fade_out_and_stop(player, fade)
+
+
+## 停止全部 SFX
+func stop_all(fade: float = 0.3) -> void:
+	for player in players:
+		if player.playing:
+			_fade_out_and_stop(player, fade)
+
+
+## 分配播放器：空闲优先；全忙时按轮询序（最老优先）先抢非循环的，最后才抢循环中的
+func _pick_player() -> AudioStreamPlayer:
+	for player in players:
+		if not player.playing:
+			return player
+	for i in players.size():
+		var idx := (cur_player_index + 1 + i) % players.size()
+		if not _loops.get(players[idx], false):
+			return players[idx]
+	return players[(cur_player_index + 1) % players.size()]
+
+
+func _fade_out_and_stop(player: AudioStreamPlayer, fade: float) -> void:
+	_streams.erase(player)
+	_loops.erase(player)
+	_kill_fade_tween(player)
+	if fade <= 0.0:
+		player.stop()
+		return
+	var tween := create_tween()
+	tween.tween_property(player, "volume_db", -80.0, fade)
+	tween.tween_callback(player.stop)
+	_fade_tweens[player] = tween
+
+
+func _kill_fade_tween(player: AudioStreamPlayer) -> void:
+	var tween: Tween = _fade_tweens.get(player)
+	if tween and tween.is_valid():
+		tween.kill()
+	_fade_tweens.erase(player)

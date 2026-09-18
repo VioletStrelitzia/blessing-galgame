@@ -3,7 +3,6 @@
 [ext_resource type="Script" uid="uid://be47cml4jmhms" path="res://Autoloads/AudioManager/sfx_audio_player_manager.gd" id="1_6ew76"]
 
 [node name="SFXAudioPlayerManager" type="Node" node_paths=PackedStringArray("players")]
-process_mode = 1
 script = ExtResource("1_6ew76")
 players = [NodePath("Player0"), NodePath("Player1"), NodePath("Player2"), NodePath("Player3"), NodePath("Player4"), NodePath("Player5")]
 

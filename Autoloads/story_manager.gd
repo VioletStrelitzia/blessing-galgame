@@ -85,8 +85,11 @@ func _ready() -> void:
 		Instruction.Head.MUSIC_PAUSE: 		_music_pause,
 		Instruction.Head.MUSIC_RESUME: 		_music_resume,
 		Instruction.Head.MUSIC_STOP: 		_music_stop,
+		Instruction.Head.MUSIC_VOLUME: 		_music_volume,
 		Instruction.Head.VOICE_PLAY: 		_voice_play,
+		Instruction.Head.VOICE_STOP: 		_voice_stop,
 		Instruction.Head.SFX_PLAY: 			_sfx_play,
+		Instruction.Head.SFX_STOP: 			_sfx_stop,
 		Instruction.Head.SET_BACKGROUND: 	_set_background,
 		Instruction.Head.CHAR_SETUP: 		_char_setup,
 		Instruction.Head.CHAR_SHOW_FADE: 	_char_show_fade,
@@ -347,6 +350,8 @@ func next_story(free: bool = false) -> void:
 		dialogue_ui.fade_out()
 	AudioManager.stop_music()
 	AudioManager.stop_voice()
+	# SFX 一并停掉：跳幕即重建现场，loop 环境音不跨幕泄漏（读档重放会重新执行到它）
+	AudioManager.stop_all_sfx()
 	await SceneManager.transition("fade_out", 1)
 	SceneManager.umount_all(["ui", "world2d"], free)
 	ResourceManager.clear_all_cache()
@@ -376,15 +381,16 @@ func next_story(free: bool = false) -> void:
 
 
 func _music_play(ins: Instruction) -> bool:
-	# 解包参数: [path: String, from: float, loop: bool, fade: float]
+	# 解包参数: [path: String, from: float, loop: bool, fade: float, volume: float]
 	var key: String = ins.params[0] as String
 	var from_position: float = ins.params[1] as float
 	var loop: bool = ins.params[2] as bool
 	var fade: float = ins.params[3] as float
+	var volume: float = ins.params[4] as float
 
 	var audio_stream = ResourceManager.load("audio", key)
 	if audio_stream:
-		AudioManager.play_music(audio_stream, from_position, fade, fade, loop)
+		AudioManager.play_music(audio_stream, from_position, fade, fade, loop, volume)
 	else:
 		GalLogger.error(LOG_TAG, "加载 BGM \"" + key + "\"失败")
 	return false
@@ -411,29 +417,62 @@ func _music_stop(ins: Instruction = null) -> bool:
 	return false
 
 
+## music volume <0~1> [fade:秒]：调节在播音轨响度，不重启曲目
+func _music_volume(ins: Instruction) -> bool:
+	# 参数: [volume: float, fade: float]
+	AudioManager.set_music_volume(ins.params[0] as float, ins.params[1] as float)
+	return false
+
+
 func _voice_play(ins: Instruction) -> bool:
-	# 解包参数: [path: String, offset: float]
+	# 解包参数: [path: String, from: float, volume: float]
 	var key: String = ins.params[0] as String
 	var offset: float = ins.params[1] as float
+	var volume: float = ins.params[2] as float
 	
 	var audio_stream = ResourceManager.load("audio", key)
 	if audio_stream:
-		AudioManager.play_voice(audio_stream, offset)
+		AudioManager.play_voice(audio_stream, offset, volume)
 	else:
 		GalLogger.error(LOG_TAG, "加载语音\"" + key + "\"失败")
 	return false
 
 
 func _sfx_play(ins: Instruction) -> bool:
-	# 解包参数: [path: String, offset: float]
+	# 解包参数: [path: String, from: float, volume: float, loop: bool]
 	var key: String = ins.params[0] as String
 	var offset: float = ins.params[1] as float
+	var volume: float = ins.params[2] as float
+	var loop: bool = ins.params[3] as bool
 	
 	var audio_stream = ResourceManager.load("audio", key)
 	if audio_stream:
-		AudioManager.play_sfx(audio_stream, offset)
+		AudioManager.play_sfx(audio_stream, offset, volume, loop)
 	else:
 		GalLogger.error(LOG_TAG, "加载音效\"" + key + "\"失败")
+	return false
+
+
+## voice stop [fade:秒]；推进对话时的自动停止走 AudioManager.stop_voice 默认参数
+func _voice_stop(ins: Instruction) -> bool:
+	# 参数: [fade: float]
+	AudioManager.stop_voice(ins.params[0] as float)
+	return false
+
+
+## sfx stop [引用] [fade:秒]；引用省略 = 停止全部。播放中的引用必然已缓存，load 命中缓存不产生新加载
+func _sfx_stop(ins: Instruction) -> bool:
+	# 参数: [ref: String, fade: float]
+	var ref: String = ins.params[0]
+	var fade: float = ins.params[1]
+	if ref.is_empty():
+		AudioManager.stop_all_sfx(fade)
+		return false
+	var audio_stream = ResourceManager.load("audio", ref)
+	if audio_stream:
+		AudioManager.stop_sfx(audio_stream, fade)
+	else:
+		GalLogger.warn(LOG_TAG, "sfx stop 引用无法解析（可能从未播放）: " + ref)
 	return false
 
 
@@ -795,6 +834,7 @@ func _jump_main_menu(_ins: Instruction = null) -> bool:
 		dialogue_ui.fade_out()
 	AudioManager.stop_music()
 	AudioManager.stop_voice()
+	AudioManager.stop_all_sfx()  # 回主菜单即重建现场，loop 环境音不泄漏（主菜单 BGM 由主菜单自起）
 	SceneManager.mount_and_unmount({
 		"ui": {"主菜单": Global.scenes["主菜单"]},
 	}, {
