@@ -26,7 +26,7 @@ enum Head {
 	CHAR_CHANGE_TEXTURE,	# char <idx> texture <path>
 
 	# [选择系统]
-	OPTION,     			# * 文本 [if:条件]（条件为后缀记号流，空 = 恒真）
+	OPTION,     			# * 文本 [if:条件]（tokens 空 = 恒真；组结构编译期回填：is_head/body_start/next_option/group_end）
 	OPTION_END,     		# 编译期生成的选项组收尾
 
 	# [变量操作]
@@ -80,201 +80,126 @@ enum CondTag {
 @export var head: Head
 @export var params: Array[Variant] = []
 
-func _init(head_: Head = Head.BLANK, args: Array[String] = []) -> void:
+## 参数形状表：head → [[参数名, 类型, 默认值]]。
+## 参数在编译期由 DialogueImporter 产出即定型（类型化，不经字符串回环）；
+## 本表提供默认值补齐、类型校验与 from_strings 转型（测试辅助路径）。
+enum _T { STR, FLOAT, INT, BOOL, ARR }
+
+const _SPEC: Dictionary = {
+	# [音频指令]
+	Head.MUSIC_PLAY: [["path", _T.STR, ""], ["from", _T.FLOAT, 0.0], ["loop", _T.BOOL, true], ["fade_in", _T.FLOAT, 1.0], ["fade_out", _T.FLOAT, 1.0], ["volume", _T.FLOAT, 1.0]],
+	Head.MUSIC_STOP: [["fade", _T.FLOAT, 1.0]],
+	Head.VOICE_PLAY: [["path", _T.STR, ""], ["from", _T.FLOAT, 0.0], ["volume", _T.FLOAT, 1.0]],
+	Head.VOICE_STOP: [["fade", _T.FLOAT, 0.1]],
+	Head.SFX_PLAY: [["path", _T.STR, ""], ["from", _T.FLOAT, 0.0], ["volume", _T.FLOAT, 1.0], ["loop", _T.BOOL, false]],
+	Head.SFX_STOP: [["ref", _T.STR, ""], ["fade", _T.FLOAT, 0.3]],  # ref 为空 = 停止全部 SFX
+	Head.SFX_VOLUME: [["ref", _T.STR, ""], ["volume", _T.FLOAT, 1.0], ["fade", _T.FLOAT, 0.3]],
+	Head.MUSIC_VOLUME: [["volume", _T.FLOAT, 1.0], ["fade", _T.FLOAT, 0.5]],
+
+	# [视觉与资源]
+	Head.SET_BACKGROUND: [["path", _T.STR, ""], ["time", _T.FLOAT, 0.0]],
+
+	# [角色动画]
+	Head.CHAR_SETUP: [["char_index", _T.INT, 0], ["path", _T.STR, ""], ["x", _T.FLOAT, 0.0], ["y", _T.FLOAT, 0.0]],
+	Head.CHAR_SHOW_FADE: [["char_index", _T.INT, 0], ["duration", _T.FLOAT, 1.0], ["wait", _T.BOOL, false]],
+	Head.CHAR_HIDE_FADE: [["char_index", _T.INT, 0], ["duration", _T.FLOAT, 1.0], ["wait", _T.BOOL, false]],
+	Head.CHAR_MOVE_TO: [["char_index", _T.INT, 0], ["x", _T.FLOAT, 0.0], ["y", _T.FLOAT, 0.0], ["duration", _T.FLOAT, 1.0], ["wait", _T.BOOL, false]],
+	Head.CHAR_WAIT: [["char_index", _T.INT, 0], ["duration", _T.FLOAT, 0.0]],
+	Head.CHAR_CHANGE_TEXTURE: [["char_index", _T.INT, 0], ["path", _T.STR, ""]],
+
+	# [选择系统]（tokens 条件记号流；is_head/body_start/next_option/group_end 编译期回填）
+	Head.OPTION: [["text", _T.STR, ""], ["tokens", _T.ARR, []], ["is_head", _T.BOOL, false], ["body_start", _T.INT, 0], ["next_option", _T.INT, -1], ["group_end", _T.INT, 0]],
+
+	# [变量操作]（value 为字符串：数字字面量或变量名，运行时解析）
+	Head.VAR_SET: [["key", _T.STR, ""], ["value", _T.STR, ""]],
+	Head.VAR_ADD: [["key", _T.STR, ""], ["value", _T.STR, ""]],
+	Head.VAR_SUB: [["key", _T.STR, ""], ["value", _T.STR, ""]],
+	Head.VAR_MUL: [["key", _T.STR, ""], ["value", _T.STR, ""]],
+	Head.VAR_DIV: [["key", _T.STR, ""], ["value", _T.STR, ""]],
+	Head.VAR_RANDOM: [["key", _T.STR, ""], ["min", _T.FLOAT, 0.0], ["max", _T.FLOAT, 1.0]],
+
+	# [逻辑流控制]（tokens 与跳转目标由编译期回填）
+	Head.IF: [["tokens", _T.ARR, []], ["next_target", _T.INT, 0]],
+	Head.ELSE_IF: [["tokens", _T.ARR, []], ["next_target", _T.INT, 0], ["end_target", _T.INT, 0]],
+	Head.ELSE: [["end_target", _T.INT, 0]],
+
+	# [脚本跳转]
+	Head.SET_BEGIN_SCRIPT: [["script_name", _T.STR, ""]],
+	Head.JUMP_SCRIPT: [["script_name", _T.STR, ""]],
+
+	# [场景管理原子指令]
+	Head.SCENE_MOUNT: [["type", _T.STR, "world2d"], ["name", _T.STR, "default"], ["path", _T.STR, ""], ["time", _T.FLOAT, 0.0], ["anim", _T.STR, "fade"]],
+	Head.SCENE_UNMOUNT: [["type", _T.STR, "world2d"], ["name", _T.STR, "default"], ["time", _T.FLOAT, 0.0], ["anim", _T.STR, "fade"], ["free", _T.BOOL, true]],
+	Head.TRANSITION_IN: [["time", _T.FLOAT, 1.0], ["anim", _T.STR, "fade_in"], ["wait", _T.BOOL, true]],
+	Head.TRANSITION_OUT: [["time", _T.FLOAT, 1.0], ["anim", _T.STR, "fade_out"], ["wait", _T.BOOL, true]],
+
+	# [剧情等待]
+	Head.WAIT: [["duration", _T.FLOAT, 0.0]],
+}
+
+
+## 类型化构造：编译器产出即定型。缺省补默认值；超产/类型不符报错并保持默认（产物损毁护栏）
+func _init(head_: Head = Head.BLANK, typed: Array = []) -> void:
 	head = head_
-
-	match head_:
-		# 参数: [path: String, from: float, loop: bool, fade_in: float, fade_out: float, volume: float]
-		Head.MUSIC_PLAY:
-			params.append(_arg_str(args, 0, ""))
-			params.append(_arg_float(args, 1, 0.0))
-			params.append(_arg_bool(args, 2, true))
-			params.append(_arg_float(args, 3, 1.0))
-			params.append(_arg_float(args, 4, 1.0))
-			params.append(_arg_float(args, 5, 1.0))
-
-		# 参数: [fade: float]
-		Head.MUSIC_STOP:
-			params.append(_arg_float(args, 0, 1.0))
-
-		# 无参数音频指令
-		Head.MUSIC_PAUSE, \
-		Head.MUSIC_RESUME:
-			pass
-
-		# 参数: [path: String, from: float, volume: float]
-		Head.VOICE_PLAY:
-			params.append(_arg_str(args, 0, ""))
-			params.append(_arg_float(args, 1, 0.0))
-			params.append(_arg_float(args, 2, 1.0))
-
-		# 参数: [path: String, from: float, volume: float, loop: bool]
-		Head.SFX_PLAY:
-			params.append(_arg_str(args, 0, ""))
-			params.append(_arg_float(args, 1, 0.0))
-			params.append(_arg_float(args, 2, 1.0))
-			params.append(_arg_bool(args, 3, false))
-
-		# 视觉与资源
-		# 参数: [path: String, time: float]
-		Head.SET_BACKGROUND:
-			params.append(_arg_str(args, 0, ""))
-			params.append(_arg_float(args, 1, 0.0))
-
-		# 参数: [text/script_name: String]
-		Head.SET_BEGIN_SCRIPT, \
-		Head.JUMP_SCRIPT:
-			params.append(_arg_str(args, 0, ""))
-
-		# 参数: [char_index: int, path: String]
-		Head.CHAR_CHANGE_TEXTURE:
-			params.append(_arg_int(args, 0, 0))
-			params.append(_arg_str(args, 1, ""))
-
-		# 选项：文本 + 条件记号流（空 = 恒真）。tokens 由编译器直接写入，不经字符串 args
-		# 参数: [text: String, tokens: Array]
-		Head.OPTION:
-			params.append(_arg_str(args, 0, ""))
-			params.append([])
-
-		# 无参数指令
-		Head.JUMP_MAIN_MENU, \
-		Head.OPTION_END, \
-		Head.END_IF:
-			pass
-
-		# 角色动画（实例索引进入各指令参数）
-		# 参数: [char_index: int, path: String, x: float, y: float]
-		Head.CHAR_SETUP:
-			params.append(_arg_int(args, 0, 0))
-			params.append(_arg_str(args, 1, ""))
-			params.append(_arg_float(args, 2, 0.0))
-			params.append(_arg_float(args, 3, 0.0))
-
-		# 参数: [char_index: int, duration: float, wait: bool]
-		Head.CHAR_SHOW_FADE, \
-		Head.CHAR_HIDE_FADE:
-			params.append(_arg_int(args, 0, 0))
-			params.append(_arg_float(args, 1, 1.0))
-			params.append(_arg_bool(args, 2, false))
-
-		# 参数: [char_index: int, x: float, y: float, duration: float, wait: bool]
-		Head.CHAR_MOVE_TO:
-			params.append(_arg_int(args, 0, 0))
-			params.append(_arg_float(args, 1, 0.0))
-			params.append(_arg_float(args, 2, 0.0))
-			params.append(_arg_float(args, 3, 1.0))
-			params.append(_arg_bool(args, 4, false))
-
-		# 参数: [char_index: int, duration: float]
-		Head.CHAR_WAIT:
-			params.append(_arg_int(args, 0, 0))
-			params.append(_arg_float(args, 1, 0.0))
-
-		# 变量操作（value 为字符串：数字字面量或变量名，运行时解析）
-		# 参数: [key: String, value: String]
-		Head.VAR_SET, \
-		Head.VAR_ADD, \
-		Head.VAR_SUB, \
-		Head.VAR_MUL, \
-		Head.VAR_DIV:
-			params.append(_arg_str(args, 0, ""))
-			params.append(_arg_str(args, 1, ""))
-
-		# 参数: [key: String, min: float, max: float]
-		Head.VAR_RANDOM:
-			params.append(_arg_str(args, 0, ""))
-			params.append(_arg_float(args, 1, 0.0))
-			params.append(_arg_float(args, 2, 1.0))
-
-		# 逻辑流控制：tokens（后缀记号流）与跳转目标均由编译器直接写入，不经字符串 args
-		# 参数: [tokens: Array, next_target: int]
-		Head.IF:
-			params.append([])
-			params.append(0)
-
-		# 参数: [tokens: Array, next_target: int, end_target: int]
-		Head.ELSE_IF:
-			params.append([])
-			params.append(0)
-			params.append(0)
-
-		# 参数: [end_target: int]
-		Head.ELSE:
-			params.append(0)
-
-		# 场景挂载
-		# 语法: scene mount <type> <name> <path> [time:秒] [anim:名]
-		Head.SCENE_MOUNT:
-			params.append(_arg_str(args, 0, "world2d"))    # type
-			params.append(_arg_str(args, 1, "default"))    # name
-			params.append(_arg_str(args, 2, ""))           # path
-			params.append(_arg_float(args, 3, 0.0))        # duration
-			params.append(_arg_str(args, 4, "fade"))       # anim_name
-
-		# 场景卸载
-		# 语法: scene unmount <type> <name> [time:秒] [anim:名] [free:bool]
-		Head.SCENE_UNMOUNT:
-			params.append(_arg_str(args, 0, "world2d"))
-			params.append(_arg_str(args, 1, "default"))
-			params.append(_arg_float(args, 2, 0.0))        # duration
-			params.append(_arg_str(args, 3, "fade"))       # anim_name
-			params.append(_arg_bool(args, 4, true))        # free
-
-		# 场景转场
-		# 语法: trans in [time:秒] [anim:名] [wait:bool]
-		Head.TRANSITION_IN:
-			params.append(_arg_float(args, 0, 1.0))
-			params.append(_arg_str(args, 1, "fade_in"))
-			params.append(_arg_bool(args, 2, true))
-
-		Head.TRANSITION_OUT:
-			params.append(_arg_float(args, 0, 1.0))
-			params.append(_arg_str(args, 1, "fade_out"))
-			params.append(_arg_bool(args, 2, true))
-
-		# 剧情等待
-		# 参数: [duration: float]
-		Head.WAIT:
-			params.append(_arg_float(args, 0, 0.0))
-
-		# 参数: [fade: float]
-		Head.VOICE_STOP:
-			params.append(_arg_float(args, 0, 0.1))
-
-		# 参数: [ref: String, fade: float]（ref 为空 = 停止全部 SFX）
-		Head.SFX_STOP:
-			params.append(_arg_str(args, 0, ""))
-			params.append(_arg_float(args, 1, 0.3))
-
-		# 参数: [volume: float, fade: float]
-		Head.MUSIC_VOLUME:
-			params.append(_arg_float(args, 0, 1.0))
-			params.append(_arg_float(args, 1, 0.5))
-
-		# 参数: [ref: String, volume: float, fade: float]
-		Head.SFX_VOLUME:
-			params.append(_arg_str(args, 0, ""))
-			params.append(_arg_float(args, 1, 1.0))
-			params.append(_arg_float(args, 2, 0.3))
+	var spec: Array = _SPEC.get(head_, [])
+	params = []
+	for entry in spec:
+		params.append((entry[2] as Array).duplicate() if entry[1] == _T.ARR else entry[2])
+	for i in typed.size():
+		if i >= spec.size():
+			GalLogger.error("Instruction", "参数超产: %s 期望 %d 个，实际 %d 个" % [Head.keys()[head_], spec.size(), typed.size()])
+			break
+		if not _type_ok(typed[i], spec[i][1]):
+			GalLogger.error("Instruction", "参数类型不符: %s 第 %d 位（期望 %s），保持默认值" % [Head.keys()[head_], i, _T.keys()[spec[i][1]]])
+			continue
+		params[i] = typed[i]
 
 
-func _arg_str(args: Array[String], idx: int, default: String = "") -> String:
-	return args[idx] if idx < args.size() else default
+## 字符串参数构造（测试辅助路径）：按 spec 类型转型
+static func from_strings(head_: Head, args: Array[String]) -> Instruction:
+	return _from_strings_into(Instruction.new(), head_, args)
 
 
-func _arg_int(args: Array[String], idx: int, default: int = 0) -> int:
-	return args[idx].to_int() if idx < args.size() else default
+## 供子类（Prev/PostInstruction）复用的 from_strings
+static func _from_strings_into(ins: Instruction, head_: Head, args: Array[String]) -> Instruction:
+	ins.head = head_
+	var spec: Array = _SPEC.get(head_, [])
+	ins.params = []
+	for entry in spec:
+		ins.params.append((entry[2] as Array).duplicate() if entry[1] == _T.ARR else entry[2])
+	for i in mini(args.size(), spec.size()):
+		ins.params[i] = _convert_str(args[i], spec[i][1])
+	return ins
 
 
-func _arg_float(args: Array[String], idx: int, default: float = 0.0) -> float:
-	return args[idx].to_float() if idx < args.size() else default
+static func _convert_str(s: String, t: _T) -> Variant:
+	match t:
+		_T.STR:
+			return s
+		_T.FLOAT:
+			return s.to_float()
+		_T.INT:
+			return s.to_int()
+		_T.BOOL:
+			return s.to_lower() in ["true", "1", "on"]
+		_T.ARR:
+			return []
+	return s
 
 
-func _arg_bool(args: Array[String], idx: int, default: bool = false) -> bool:
-	if idx >= args.size(): return default
-	var s = args[idx].to_lower()
-	return s == "true" or s == "1" or s == "on"
+static func _type_ok(v: Variant, t: _T) -> bool:
+	match t:
+		_T.STR:
+			return v is String
+		_T.FLOAT:
+			return v is float or v is int
+		_T.INT:
+			return v is int
+		_T.BOOL:
+			return v is bool
+		_T.ARR:
+			return v is Array
+	return true
 
 
 func _to_string() -> String:

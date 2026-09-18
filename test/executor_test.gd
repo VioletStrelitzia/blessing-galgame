@@ -4,7 +4,7 @@ extends SceneTree
 ## 逐 handler 断言行为正确性（变量/条件/选项/跳转/等待/立绘/挂载/转场/三态时机/渲染）。
 ## 用法：godot --headless --path . -s test/executor_test.gd
 ## 注意：-s 模式下 autoload 标识符编译期不可用（preload story_manager.gd 会因它引用
-## Global 等而连带编译失败），一律经 root.get_node 引用；ManagerMode 枚举硬编码。
+## Global 等而连带编译失败），一律经 root.get_node 引用；Synchronizer.Mode 经 SYNC.Mode 实例动态访问。
 
 var _ok := true
 var _failures: Array[String] = []
@@ -12,15 +12,14 @@ var _failures: Array[String] = []
 var SM  # StoryManager（Variant 以支持动态调用）
 var G  # Global
 var SC  # SceneManager
-# StoryManager.ManagerMode: INTERACT=0, AUTO=1, SKIP=2, STOP=3（脚本无法 preload，硬编码）
-const MODE_INTERACT := 0
-const MODE_SKIP := 2
+var SYNC  # Synchronizer（Variant 以支持动态调用；模式枚举用 Synchronizer.Mode）
 
 
 func _initialize() -> void:
 	SM = root.get_node("StoryManager")
 	G = root.get_node("Global")
 	SC = root.get_node("SceneManager")
+	SYNC = root.get_node("Synchronizer")
 	call_deferred("_run")
 
 
@@ -44,6 +43,8 @@ func _run() -> void:
 	await _test_char()
 	_test_scene()
 	_test_trans_no_controller()
+	_test_sync()
+	await _test_anchor_wait()
 	await _test_three_timings()
 	_test_renderer()
 	await _test_audio()
@@ -69,7 +70,7 @@ func _load_seq(items: Array[GalEventItem]) -> void:
 	SM.cur_script = s
 	SM.idx = 0
 	SM._execution_stack.clear()
-	SM.current_option_end_idx = -1
+	SYNC.preempt(SYNC.PRIO_RESET)  # 清挂起但不动模式（模式由用例自管）
 
 
 ## 经真实编译器构造并装载剧本（测试脚本应零诊断）
@@ -81,7 +82,7 @@ func _load_text(lines: Array) -> void:
 	SM.cur_script = compiled
 	SM.idx = 0
 	SM._execution_stack.clear()
-	SM.current_option_end_idx = -1
+	SYNC.preempt(SYNC.PRIO_RESET)  # 清挂起但不动模式（模式由用例自管）
 
 
 ## 当前剧本可见选项的分支体起始索引（条件经运行时求值过滤，与 _option_begin 同口径）
@@ -97,15 +98,15 @@ func _visible_option_indices() -> Array[int]:
 
 
 func _ins(head: Instruction.Head, args: Array[String] = []) -> Instruction:
-	return Instruction.new(head, args)
+	return Instruction.from_strings(head, args)
 
 
 func _post(head: Instruction.Head, args: Array[String] = []) -> PostInstruction:
-	return PostInstruction.new(head, args)
+	return PostInstruction.from_strings(head, args)
 
 
 func _prev(head: Instruction.Head, args: Array[String] = []) -> PrevInstruction:
-	return PrevInstruction.new(head, args)
+	return PrevInstruction.from_strings(head, args)
 
 
 func _dlg(text: String = "测试") -> DialogueItem:
@@ -322,7 +323,7 @@ func _test_condition() -> void:
 		"    var after = 1",
 	])
 	SM.run_script()
-	_assert(SM._option_waiting, "分支内选项组应挂起等待")
+	_assert(SYNC.has_kind(&"option"), "分支内选项组应挂起等待")
 	SM._on_option_made(0, _visible_option_indices())
 	_assert(G.vars.get("hit", 0.0) == 1.0 and G.vars.get("after", 0.0) == 1.0,
 		"分支内选项选择后应走完分支体，实际 hit=%s after=%s" % [G.vars.get("hit"), G.vars.get("after")])
@@ -339,7 +340,7 @@ func _test_condition() -> void:
 		"    var hit = 3",
 	])
 	SM.run_script()
-	_assert(SM._option_waiting, "选项组应挂起等待")
+	_assert(SYNC.has_kind(&"option"), "选项组应挂起等待")
 	SM._on_option_made(0, _visible_option_indices())  # 选甲 → 块内 if 真
 	_assert(G.vars.get("hit", 0.0) == 1.0, "选项块内 if 真应走真分支，实际 %s" % G.vars.get("hit"))
 	_assert(SM._execution_stack.is_empty(), "选项块内 if 结束后执行栈应为空")
@@ -347,7 +348,7 @@ func _test_condition() -> void:
 	# --- SKIP 与防御 ---
 
 	# SKIP 穿越分支：真路径对话照样流过，假分支不显示
-	SM._set_manager_mode(2)  # SKIP
+	SYNC.mode = SYNC.Mode.SKIP  # SKIP
 	_load_text([
 		"if a >= 5",
 		"    引路人: SKIP真",
@@ -360,7 +361,7 @@ func _test_condition() -> void:
 	_assert(SM.dialogue_ui.current_dialogue_content == "SKIP后",
 		"SKIP 应穿越真分支停在结构后，实际 %s" % SM.dialogue_ui.current_dialogue_content)
 	_assert(SM._execution_stack.is_empty(), "SKIP 穿越后执行栈应为空")
-	SM._set_manager_mode(0)  # 还原 INTERACT
+	SYNC.mode = SYNC.Mode.INTERACT  # 还原 INTERACT
 
 	# 空栈守卫回归：孤立 ELSE/ELSE_IF/END_IF 不崩溃、不死循环、顺序继续
 	#（编译期已拦截，此处锁运行期防御行为；产物损毁时顺序继续优于崩死）
@@ -390,7 +391,7 @@ func _test_option() -> void:
 		"var after = 1",
 	])
 	SM.run_script()  # 停在选项（返回 true）
-	_assert(SM._option_waiting, "选项应挂起等待")
+	_assert(SYNC.has_kind(&"option"), "选项应挂起等待")
 	var indices := _visible_option_indices()
 	_assert(indices.size() == 2, "条件过滤后应剩 2 个选项，实际 %d" % indices.size())
 	SM._on_option_made(1, indices)  # 选可见第 2 项（丙）
@@ -405,7 +406,7 @@ func _test_option() -> void:
 		"var after = 1",
 	])
 	SM.run_script()
-	_assert(not SM._option_waiting, "空选项组不应挂起")
+	_assert(not SYNC.has_kind(&"option"), "空选项组不应挂起")
 	_assert(G.vars.get("after", 0.0) == 1.0, "空选项组应跳过整组继续")
 
 	# 选项文本 {var} 插值（与对话同口径，经 DialogueRenderer.render_plain）
@@ -450,22 +451,22 @@ func _test_wait() -> void:
 		_ins(Instruction.Head.WAIT, ["0.3"]),
 		_ins(Instruction.Head.VAR_SET, ["w", "1"]),
 	])
-	SM._set_manager_mode(MODE_INTERACT)
+	SYNC.mode = SYNC.Mode.INTERACT
 	SM.run_script()
-	_assert(SM._wait_waiting, "wait 应挂起")
+	_assert(SYNC.has_kind(&"wait"), "wait 应挂起")
 	_assert(not G.vars.has("w"), "wait 挂起期间后续指令不应执行")
 	await create_timer(0.6).timeout
-	_assert(not SM._wait_waiting and G.vars.get("w", 0.0) == 1.0, "wait 定时器触发后应继续执行")
+	_assert(not SYNC.has_kind(&"wait") and G.vars.get("w", 0.0) == 1.0, "wait 定时器触发后应继续执行")
 
 	# SKIP 短路：不挂起直接过
 	_load_seq([
 		_ins(Instruction.Head.WAIT, ["5.0"]),
 		_ins(Instruction.Head.VAR_SET, ["w2", "1"]),
 	])
-	SM._set_manager_mode(MODE_SKIP)
+	SYNC.mode = SYNC.Mode.SKIP
 	SM.run_script()
-	_assert(not SM._wait_waiting and G.vars.get("w2", 0.0) == 1.0, "SKIP 中 wait 应短路")
-	SM._set_manager_mode(MODE_INTERACT)
+	_assert(not SYNC.has_kind(&"wait") and G.vars.get("w2", 0.0) == 1.0, "SKIP 中 wait 应短路")
+	SYNC.mode = SYNC.Mode.INTERACT
 
 
 func _test_char() -> void:
@@ -487,10 +488,10 @@ func _test_char() -> void:
 		_ins(Instruction.Head.VAR_SET, ["after_show", "1"]),
 	])
 	SM.run_script()
-	_assert(SM._char_waiting, "char wait:true 应挂起")
+	_assert(SYNC.has_kind(&"char"), "char wait:true 应挂起")
 	_assert(G.vars.get("after_show", 0.0) == 0.0, "挂起期间后续不执行")
 	await create_timer(0.5).timeout
-	_assert(not SM._char_waiting and G.vars.get("after_show", 0.0) == 1.0,
+	_assert(not SYNC.has_kind(&"char") and G.vars.get("after_show", 0.0) == 1.0,
 		"sequence_finished 后应恢复执行")
 
 	# SKIP 短路：wait:true 不挂起
@@ -498,11 +499,11 @@ func _test_char() -> void:
 		_ins(Instruction.Head.CHAR_HIDE_FADE, ["0", "0.5", "true"]),
 		_ins(Instruction.Head.VAR_SET, ["after_hide", "1"]),
 	])
-	SM._set_manager_mode(MODE_SKIP)
+	SYNC.mode = SYNC.Mode.SKIP
 	SM.run_script()
-	_assert(not SM._char_waiting and G.vars.get("after_hide", 0.0) == 1.0,
+	_assert(not SYNC.has_kind(&"char") and G.vars.get("after_hide", 0.0) == 1.0,
 		"SKIP 中 char wait:true 应短路")
-	SM._set_manager_mode(MODE_INTERACT)
+	SYNC.mode = SYNC.Mode.INTERACT
 	c.reset([], true)
 
 
@@ -538,8 +539,102 @@ func _test_trans_no_controller() -> void:
 		_ins(Instruction.Head.VAR_SET, ["after_trans", "1"]),
 	])
 	SM.run_script()
-	_assert(not SM._trans_waiting, "无转场控制器时 trans wait:true 不应挂起")
+	_assert(not SYNC.has_kind(&"trans"), "无转场控制器时 trans wait:true 不应挂起")
 	_assert(G.vars.get("after_trans", 0.0) == 1.0, "trans 不挂起应继续执行")
+
+
+## 同步器专项：注册表/短路/优先级抢占/处置回调/依赖级联/跃迁单次发射
+func _test_sync() -> void:
+	SYNC.preempt(SYNC.PRIO_RESET)
+	SYNC.mode = SYNC.Mode.INTERACT
+
+	# acquire/release 基本语义
+	var id0: int = SYNC.acquire(&"wait")
+	_assert(id0 != -1 and SYNC.has_kind(&"wait"), "acquire 后应有 wait 挂起")
+	SYNC.release(id0)
+	_assert(not SYNC.has_kind(&"wait"), "release 后挂起应清空")
+
+	# SKIP 短路（非免疫类别不产生挂起；option 为 skip_immune）
+	SYNC.mode = SYNC.Mode.SKIP
+	_assert(SYNC.acquire(&"wait") == -1, "SKIP 中 wait 应短路返回 INVALID")
+	_assert(SYNC.acquire(&"option") != -1, "SKIP 中 option（skip_immune）仍应真实挂起")
+	SYNC.preempt(SYNC.PRIO_RESET)
+	SYNC.mode = SYNC.Mode.INTERACT
+
+	# 优先级抢占：option（阈值 PRIO_RESET）在点击下存活，wait 被 KILL
+	SYNC.acquire(&"option")
+	SYNC.acquire(&"wait")
+	SYNC.preempt(SYNC.PRIO_CLICK)
+	_assert(SYNC.has_kind(&"option") and not SYNC.has_kind(&"wait"),
+		"点击抢占应 KILL wait 而保留 option（阈值保护）")
+	SYNC.preempt(SYNC.PRIO_RESET)
+	_assert(not SYNC.has_kind(&"option"), "RESET 应清掉 option")
+
+	# FAST_FORWARD 处置回调（on_fast_forward 被调用并释放）
+	var ff := [false]
+	SYNC.acquire(&"char", null, func(): ff[0] = true)
+	SYNC.preempt(SYNC.PRIO_CLICK)
+	_assert(ff[0] and not SYNC.has_kind(&"char"), "CHAR 抢占应回调 on_fast_forward 并释放")
+
+	# 依赖图预留：B 依赖 A；A 释放后 B 级联清空，门闸随之放开
+	var id_a: int = SYNC.acquire(&"wait")
+	var deps: Array[int] = [id_a]
+	SYNC.acquire(&"wait", null, Callable(), Callable(), deps)
+	_assert(not SYNC.is_clear(), "依赖未清空前门闸应被堵")
+	SYNC.release(id_a)
+	_assert(SYNC.is_clear(), "A 释放后依赖它的 B 应级联清空")
+
+	# holds_cleared 只在跃迁时发射一次
+	var fired := [0]
+	var cb := func(): fired[0] += 1
+	SYNC.holds_cleared.connect(cb)
+	var w1: int = SYNC.acquire(&"wait")
+	var w2: int = SYNC.acquire(&"wait")
+	SYNC.release(w1)
+	_assert(fired[0] == 0, "仍有挂起时不应发射 holds_cleared")
+	SYNC.release(w2)
+	_assert(fired[0] == 1, "全部清空应发射恰好一次")
+	SYNC.holds_cleared.disconnect(cb)
+
+
+## 锚点 wait:true（同步器转正）：打字中途触发的 char 挂起阻塞 AUTO 自动推进；点击打断直达终态
+func _test_anchor_wait() -> void:
+	var c: Character = SM.gal_world2d.characters[0]
+	c.reset([], true)
+	var saved_wait: float = G.auto_wait_time
+	G.auto_wait_time = 0.2
+
+	# AUTO：锚点挂起阻塞自动推进，动画完成后经重布推进
+	_load_text([
+		"演[char 0 show time:0.5 wait:true]出",
+		"下一句",
+	])
+	SYNC.mode = SYNC.Mode.AUTO
+	SM.run_script()  # 开始打字；锚点在显示文本第 2 位，随即触发
+	await create_timer(0.4).timeout
+	_assert(SYNC.has_kind(&"char"), "锚点 char wait:true 应产生挂起")
+	var idx1: int = SM.idx
+	await create_timer(0.2).timeout  # 动画未完，AUTO 预约被门闸拦截
+	_assert(SM.idx == idx1, "锚点挂起期间 AUTO 不得推进")
+	await create_timer(1.2).timeout  # 动画完成（0.5s）→ 释放 → 重布 0.2s 后推进
+	_assert(SM.idx > idx1, "动画完成后 AUTO 应推进")
+
+	# 点击打断（房规）：挂起被 FAST_FORWARD 处置后放行
+	_load_text([
+		"演[char 0 hide time:2.0 wait:true]出",
+		"再下一句",
+	])
+	SYNC.mode = SYNC.Mode.INTERACT
+	SM.run_script()
+	await create_timer(0.3).timeout
+	_assert(SYNC.has_kind(&"char"), "锚点挂起应已产生")
+	SM.dialogue_ui.skip_typing()  # 点击的第一语义：先跳完打字
+	SM._advance()  # 第二语义：preempt → skip_all 直达终态 + 放行
+	_assert(not SYNC.has_kind(&"char"), "点击应打断锚点挂起（FAST_FORWARD 处置）")
+
+	G.auto_wait_time = saved_wait
+	SYNC.mode = SYNC.Mode.INTERACT
+	c.reset([], true)
 
 
 func _test_three_timings() -> void:
@@ -552,7 +647,7 @@ func _test_three_timings() -> void:
 		_prev(Instruction.Head.VAR_SET, ["mark_prev", "1"]),
 		_dlg("第二句"),
 	])
-	SM._set_manager_mode(MODE_INTERACT)
+	SYNC.mode = SYNC.Mode.INTERACT
 	SM.run_script()  # 停在第一句
 	_assert(G.vars.is_empty(), "打字中任何指令都不应执行")
 
@@ -905,7 +1000,7 @@ func _test_audio() -> void:
 	var saved_wait: float = G.auto_wait_time
 	G.auto_wait_time = 0.3
 	_load_seq([_prev(Instruction.Head.VOICE_PLAY, ["demo_bgm", "2.0", "1.0"]), _dlg("第一句"), _dlg("第二句")])
-	SM._set_manager_mode(1)  # AUTO
+	SYNC.mode = SYNC.Mode.AUTO  # AUTO
 	SM.run_script()  # 前指令起播语音（余 ~4 秒）→ 停在第一句
 	SM.dialogue_ui.skip_typing()  # 打字完成 → 布置触发器（语音在播 → 等 voice_finished）
 	var idx_after_arm: int = SM.idx
@@ -916,7 +1011,7 @@ func _test_audio() -> void:
 	_assert(SM.idx == idx_after_arm, "voice_finished 后未满 auto_wait_time 不应推进")
 	await create_timer(0.6).timeout
 	_assert(SM.idx != idx_after_arm, "voice_finished + auto_wait_time 后应推进")
-	SM._set_manager_mode(0)  # 还原 INTERACT
+	SYNC.mode = SYNC.Mode.INTERACT  # 还原 INTERACT
 	G.auto_wait_time = saved_wait
 	AM.stop_voice(0.0)
 

@@ -4,7 +4,7 @@ const LOG_TAG := "Importer"
 ## BGalS v2 编译前端：行分类 → 缩进块拍平 → 线性 GalEventItemSequence。
 ## 产物中 基类 Instruction = 独立指令，PrevInstruction/PostInstruction = 前/后指令。
 
-const COMPILER_VERSION := "bgals2.3"
+const COMPILER_VERSION := "bgals2.4"
 
 var check: bool = true
 var read_dir: String = "res://scripts"
@@ -245,7 +245,7 @@ static func parse_script(lines: PackedStringArray, file_name: String, diags: Arr
 			block_stack.back()["dead"] = false
 			block_stack.back()["dead_reported"] = false
 			_check_dead(block_stack.back(), diags, file_name, line_no)
-			_emit_option(stripped, seq, diags, file_name, line_no)
+			_emit_option(stripped, seq, diags, file_name, line_no, block_stack.back())
 			prev_block_head_kind = "option"
 			prev_indent = indent
 			continue
@@ -267,8 +267,8 @@ static func parse_script(lines: PackedStringArray, file_name: String, diags: Arr
 						_diagnose_static(diags, file_name, line_no, "error", "选项组不支持嵌套")
 						break
 				_check_dead(block_stack.back(), diags, file_name, line_no)
-				block_stack.append({"type": "option", "indent": indent, "has_else": false, "dead": false, "dead_reported": false})
-				_emit_option(stripped, seq, diags, file_name, line_no)
+				block_stack.append({"type": "option", "indent": indent, "has_else": false, "dead": false, "dead_reported": false, "members": []})
+				_emit_option(stripped, seq, diags, file_name, line_no, block_stack.back())
 				prev_block_head_kind = "option"
 			LineKind.IF_HEAD:
 				_check_dead(block_stack.back(), diags, file_name, line_no)
@@ -345,7 +345,16 @@ static func _classify_line(text: String) -> LineKind:
 static func _close_block(block: Dictionary, seq: Array[GalEventItem]) -> void:
 	match block["type"]:
 		"option":
+			# 组结构回填：is_head/body_start/next_option/group_end 烧进参数（运行时零扫描零状态）
+			var end_idx := seq.size()
 			seq.append(Instruction.new(Instruction.Head.OPTION_END))
+			var members: Array = block["members"]
+			for k in members.size():
+				var ins := seq[members[k]] as Instruction
+				ins.params[2] = (k == 0)
+				ins.params[3] = members[k] + 1
+				ins.params[4] = members[k + 1] if k + 1 < members.size() else -1
+				ins.params[5] = end_idx
 		"if":
 			seq.append(Instruction.new(Instruction.Head.END_IF))
 
@@ -368,20 +377,18 @@ static func _emit_instruction(text: String, kind: LineKind, seq: Array[GalEventI
 		return
 	match kind:
 		LineKind.INSTRUCTION_POST:
-			seq.append(PostInstruction.new(ins.head, _params_to_strings(ins.params)))
+			seq.append(_wrap_timing(PostInstruction.new(), ins))
 		LineKind.INSTRUCTION_PREV:
-			seq.append(PrevInstruction.new(ins.head, _params_to_strings(ins.params)))
+			seq.append(_wrap_timing(PrevInstruction.new(), ins))
 		_:
 			seq.append(ins)
 
 
-## 把已转型的 params 还原为字符串数组供子类构造器二次转型
-## （Prev/PostInstruction 构造器复用 Instruction 的参数 spec 表）
-static func _params_to_strings(params: Array[Variant]) -> Array[String]:
-	var out: Array[String] = []
-	for p in params:
-		out.append(str(p))
-	return out
+## 前/后指令包装：类型化参数直接移交（不再有 str() 回环；params 运行期只读，共享安全）
+static func _wrap_timing(sub: Instruction, src: Instruction) -> Instruction:
+	sub.head = src.head
+	sub.params = src.params
+	return sub
 
 
 ## 解析单行指令（无前缀标记）。失败返回 null 并记录诊断。
@@ -404,7 +411,7 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 			var bg_time: String = kv["kv"].get("time", "0")
 			if not _check_float(bg_time, "bg time", diags, file, line_no):
 				return null
-			return Instruction.new(Instruction.Head.SET_BACKGROUND, [kv["pos"][0], bg_time])
+			return Instruction.from_strings(Instruction.Head.SET_BACKGROUND, [kv["pos"][0], bg_time])
 		"music":
 			if rest.size() > 0 and rest[0] in ["stop", "pause", "resume", "volume"]:
 				var sub: String = rest[0]
@@ -416,7 +423,7 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 						var fade: String = kv["kv"].get("fade", "1.0")
 						if not _check_float(fade, "music stop fade", diags, file, line_no):
 							return null
-						return Instruction.new(Instruction.Head.MUSIC_STOP, [fade])
+						return Instruction.from_strings(Instruction.Head.MUSIC_STOP, [fade])
 					"volume":
 						# 调节在播音轨响度（不重启曲目；同曲守卫下「music 同曲 volume:x」会被吞，调音量必须用它）
 						if kv["pos"].is_empty():
@@ -428,7 +435,7 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 						var vol_fade: String = kv["kv"].get("fade", "0.5")
 						if not _check_float(vol_fade, "music volume fade", diags, file, line_no):
 							return null
-						return Instruction.new(Instruction.Head.MUSIC_VOLUME, [kv["pos"][0], vol_fade])
+						return Instruction.from_strings(Instruction.Head.MUSIC_VOLUME, [kv["pos"][0], vol_fade])
 					"pause", "resume":
 						if not kv["pos"].is_empty():
 							return _fail(diags, file, line_no, "music " + sub + " 不接受位置参数")
@@ -455,7 +462,7 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 				return null
 			if not _check_volume(volume_str, "music volume", diags, file, line_no):
 				return null
-			return Instruction.new(Instruction.Head.MUSIC_PLAY, [
+			return Instruction.from_strings(Instruction.Head.MUSIC_PLAY, [
 				kv["pos"][0], from_str, loop_str, fade_in_str, fade_out_str, volume_str,
 			])
 		"sfx", "voice":
@@ -468,12 +475,12 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 				if key == "voice":
 					if not stop_kv["pos"].is_empty():
 						return _fail(diags, file, line_no, "voice stop 不接受引用参数（语音为单播放器）")
-					return Instruction.new(Instruction.Head.VOICE_STOP, [stop_fade])
+					return Instruction.from_strings(Instruction.Head.VOICE_STOP, [stop_fade])
 				if stop_kv["pos"].size() > 1:
 					return _fail(diags, file, line_no, "sfx stop 至多一个引用参数")
 				if stop_kv["pos"].size() == 1:
 					_warn_unknown_ref(known_refs, "audio", stop_kv["pos"][0], "sfx stop", diags, file, line_no)
-				return Instruction.new(Instruction.Head.SFX_STOP, [stop_kv["pos"][0] if stop_kv["pos"].size() == 1 else "", stop_fade])
+				return Instruction.from_strings(Instruction.Head.SFX_STOP, [stop_kv["pos"][0] if stop_kv["pos"].size() == 1 else "", stop_fade])
 			# volume 子动作：仅 sfx（语音响度在制作期归一，voice 无此子动作——见 docs/未来开发设计.md 音频设计规则）
 			if rest.size() > 0 and rest[0] == "volume":
 				if key == "voice":
@@ -489,7 +496,7 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 				var sfx_vol_fade: String = vol_kv["kv"].get("fade", "0.3")
 				if not _check_float(sfx_vol_fade, "sfx volume fade", diags, file, line_no):
 					return null
-				return Instruction.new(Instruction.Head.SFX_VOLUME, [vol_kv["pos"][0], vol_kv["pos"][1], sfx_vol_fade])
+				return Instruction.from_strings(Instruction.Head.SFX_VOLUME, [vol_kv["pos"][0], vol_kv["pos"][1], sfx_vol_fade])
 			var kv := _parse_kv(rest, ["from", "volume", "loop"] if key == "sfx" else ["from", "volume"], diags, file, line_no)
 			if kv["pos"].is_empty():
 				return _fail(diags, file, line_no, key + " 缺少音频引用名")
@@ -506,8 +513,8 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 				var loop_str: String = kv["kv"].get("loop", "false")
 				if not _check_bool(loop_str, "sfx loop", diags, file, line_no):
 					return null
-				return Instruction.new(Instruction.Head.SFX_PLAY, [kv["pos"][0], from_str, volume_str, loop_str])
-			return Instruction.new(Instruction.Head.VOICE_PLAY, [kv["pos"][0], from_str, volume_str])
+				return Instruction.from_strings(Instruction.Head.SFX_PLAY, [kv["pos"][0], from_str, volume_str, loop_str])
+			return Instruction.from_strings(Instruction.Head.VOICE_PLAY, [kv["pos"][0], from_str, volume_str])
 		"char":
 			return _parse_char(rest, diags, file, line_no, char_max, known_refs)
 		"var":
@@ -518,18 +525,18 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 			if rest[0] == "main_menu":
 				return Instruction.new(Instruction.Head.JUMP_MAIN_MENU)
 			_warn_unknown_script(known_scripts, rest[0], "jump", diags, file, line_no)
-			return Instruction.new(Instruction.Head.JUMP_SCRIPT, [rest[0]])
+			return Instruction.from_strings(Instruction.Head.JUMP_SCRIPT, [rest[0]])
 		"begin":
 			if rest.is_empty():
 				return _fail(diags, file, line_no, "begin 缺少剧本名")
 			_warn_unknown_script(known_scripts, rest[0], "begin", diags, file, line_no)
-			return Instruction.new(Instruction.Head.SET_BEGIN_SCRIPT, [rest[0]])
+			return Instruction.from_strings(Instruction.Head.SET_BEGIN_SCRIPT, [rest[0]])
 		"wait":
 			if rest.is_empty():
 				return _fail(diags, file, line_no, "wait 缺少秒数")
 			if not _check_float(rest[0], "wait", diags, file, line_no):
 				return null
-			return Instruction.new(Instruction.Head.WAIT, [rest[0]])
+			return Instruction.from_strings(Instruction.Head.WAIT, [rest[0]])
 		"scene":
 			return _parse_scene(rest, diags, file, line_no)
 		"trans":
@@ -628,7 +635,7 @@ static func _parse_char(rest: Array[String], diags: Array[Dictionary], file: Str
 			var xy := _parse_xy(tail[1], diags, file, line_no)
 			if xy.is_empty():
 				return null
-			return Instruction.new(Instruction.Head.CHAR_SETUP, [idx, tail[0], xy[0], xy[1]])
+			return Instruction.from_strings(Instruction.Head.CHAR_SETUP, [idx, tail[0], xy[0], xy[1]])
 		"show", "hide":
 			var kv := _parse_kv(tail, ["time", "wait"], diags, file, line_no)
 			var time_str: String = kv["kv"].get("time", "1.0")
@@ -638,7 +645,7 @@ static func _parse_char(rest: Array[String], diags: Array[Dictionary], file: Str
 			if not _check_bool(wait_str, "char " + sub + " wait", diags, file, line_no):
 				return null
 			var head := Instruction.Head.CHAR_SHOW_FADE if sub == "show" else Instruction.Head.CHAR_HIDE_FADE
-			return Instruction.new(head, [idx, time_str, wait_str])
+			return Instruction.from_strings(head, [idx, time_str, wait_str])
 		"move":
 			var kv := _parse_kv(tail, ["time", "wait"], diags, file, line_no)
 			if kv["pos"].is_empty():
@@ -652,12 +659,12 @@ static func _parse_char(rest: Array[String], diags: Array[Dictionary], file: Str
 				return null
 			if not _check_bool(move_wait, "char move wait", diags, file, line_no):
 				return null
-			return Instruction.new(Instruction.Head.CHAR_MOVE_TO, [idx, xy[0], xy[1], move_time, move_wait])
+			return Instruction.from_strings(Instruction.Head.CHAR_MOVE_TO, [idx, xy[0], xy[1], move_time, move_wait])
 		"texture":
 			if tail.is_empty():
 				return _fail(diags, file, line_no, "char texture 缺少立绘引用名")
 			_warn_unknown_ref(known_refs, "texture", tail[0], "char texture", diags, file, line_no)
-			return Instruction.new(Instruction.Head.CHAR_CHANGE_TEXTURE, [idx, tail[0]])
+			return Instruction.from_strings(Instruction.Head.CHAR_CHANGE_TEXTURE, [idx, tail[0]])
 		"wait":
 			if tail.is_empty():
 				return _fail(diags, file, line_no, "char wait 缺少秒数")
@@ -665,7 +672,7 @@ static func _parse_char(rest: Array[String], diags: Array[Dictionary], file: Str
 				return null
 			if tail[0].to_float() < 0:
 				return _fail(diags, file, line_no, "char wait 负秒暂停语义已废除，秒数必须 >= 0")
-			return Instruction.new(Instruction.Head.CHAR_WAIT, [idx, tail[0]])
+			return Instruction.from_strings(Instruction.Head.CHAR_WAIT, [idx, tail[0]])
 	return _fail(diags, file, line_no, "未知 char 子动作: " + sub + "（应为 setup/show/hide/move/texture/wait）")
 
 
@@ -695,7 +702,7 @@ static func _parse_var(rest: Array[String], diags: Array[Dictionary], file: Stri
 	if op == "=" and rest.size() >= 5 and rest[2] == "random":
 		if not _check_float(rest[3], "random min", diags, file, line_no) or not _check_float(rest[4], "random max", diags, file, line_no):
 			return null
-		return Instruction.new(Instruction.Head.VAR_RANDOM, [key, rest[3], rest[4]])
+		return Instruction.from_strings(Instruction.Head.VAR_RANDOM, [key, rest[3], rest[4]])
 
 	if rest.size() != 3:
 		return _fail(diags, file, line_no, "var 右值过多: " + " ".join(rest.slice(3)))
@@ -712,7 +719,7 @@ static func _parse_var(rest: Array[String], diags: Array[Dictionary], file: Stri
 	# 右值必须是数字或变量名（否则运行时会按未定义变量静默取 0）
 	if not rest[2].is_valid_float() and not rest[2].is_valid_identifier():
 		return _fail(diags, file, line_no, "var 右值必须是数字或变量名: " + rest[2])
-	return Instruction.new(head, [key, rest[2]])
+	return Instruction.from_strings(head, [key, rest[2]])
 
 
 static func _parse_scene(rest: Array[String], diags: Array[Dictionary], file: String, line_no: int) -> Instruction:
@@ -725,7 +732,7 @@ static func _parse_scene(rest: Array[String], diags: Array[Dictionary], file: St
 			var kv := _parse_kv(tail, ["time", "anim"], diags, file, line_no)
 			if kv["pos"].size() < 3:
 				return _fail(diags, file, line_no, "scene mount 需要 <类型> <名称> <路径>")
-			return Instruction.new(Instruction.Head.SCENE_MOUNT, [
+			return Instruction.from_strings(Instruction.Head.SCENE_MOUNT, [
 				kv["pos"][0], kv["pos"][1], kv["pos"][2],
 				kv["kv"].get("time", "0"), kv["kv"].get("anim", "fade"),
 			])
@@ -736,7 +743,7 @@ static func _parse_scene(rest: Array[String], diags: Array[Dictionary], file: St
 			var free_str: String = kv["kv"].get("free", "true")
 			if not _check_bool(free_str, "scene unmount free", diags, file, line_no):
 				return null
-			return Instruction.new(Instruction.Head.SCENE_UNMOUNT, [
+			return Instruction.from_strings(Instruction.Head.SCENE_UNMOUNT, [
 				kv["pos"][0], kv["pos"][1],
 				kv["kv"].get("time", "0"), kv["kv"].get("anim", "fade"), free_str,
 			])
@@ -753,11 +760,11 @@ static func _parse_trans(rest: Array[String], diags: Array[Dictionary], file: St
 		return null
 	match sub:
 		"in":
-			return Instruction.new(Instruction.Head.TRANSITION_IN, [
+			return Instruction.from_strings(Instruction.Head.TRANSITION_IN, [
 				kv["kv"].get("time", "1.0"), kv["kv"].get("anim", "fade_in"), wait_str,
 			])
 		"out":
-			return Instruction.new(Instruction.Head.TRANSITION_OUT, [
+			return Instruction.from_strings(Instruction.Head.TRANSITION_OUT, [
 				kv["kv"].get("time", "1.0"), kv["kv"].get("anim", "fade_out"), wait_str,
 			])
 	return _fail(diags, file, line_no, "未知 trans 方向: " + sub)
@@ -765,7 +772,8 @@ static func _parse_trans(rest: Array[String], diags: Array[Dictionary], file: St
 
 # --- 选项与条件 ---
 
-static func _emit_option(text: String, seq: Array[GalEventItem], diags: Array[Dictionary], file: String, line_no: int) -> void:
+## 选项组成员索引登记进 frame["members"]，供 _close_block 回填组结构（is_head/body_start/next_option/group_end）
+static func _emit_option(text: String, seq: Array[GalEventItem], diags: Array[Dictionary], file: String, line_no: int, frame: Dictionary) -> void:
 	var body := _strip_inline_comment(text.substr(1).strip_edges())
 	if body.is_empty():
 		_diagnose_static(diags, file, line_no, "error", "选项缺少文本")
@@ -801,8 +809,9 @@ static func _emit_option(text: String, seq: Array[GalEventItem], diags: Array[Di
 		if parsed == null:
 			return
 		tokens = parsed
-	var ins := Instruction.new(Instruction.Head.OPTION, [option_text])
+	var ins := Instruction.from_strings(Instruction.Head.OPTION, [option_text])
 	ins.params[1] = tokens
+	(frame["members"] as Array).append(seq.size())
 	seq.append(ins)
 
 
@@ -1047,14 +1056,31 @@ static func _emit_dialogue(text: String, seq: Array[GalEventItem], diags: Array[
 
 	var speaker := ""
 	var content := text
-	var colon_index := text.find(":")
-	if colon_index == -1:
-		colon_index = text.find("：")
+	var colon_index := _find_speaker_colon(text)
 	if colon_index != -1:
 		speaker = text.substr(0, colon_index).strip_edges()
 		content = text.substr(colon_index + 1).strip_edges()
 
 	seq.append(DialogueItem.new(speaker, content))
+
+
+## 说话者分隔冒号：取首个不在 [...] 内的半角/全角冒号（锚点修饰键含冒号，如 [sfx rain volume:0.5]）
+static func _find_speaker_colon(text: String) -> int:
+	var in_bracket := false
+	var i := 0
+	while i < text.length():
+		var c := text[i]
+		if c == "\\":  # 转义字符跳过下一字符（\[ 不进入括号态）
+			i += 2
+			continue
+		if c == "[":
+			in_bracket = true
+		elif c == "]":
+			in_bracket = false
+		elif (c == ":" or c == "：") and not in_bracket:
+			return i
+		i += 1
+	return -1
 
 
 ## 锚点校验（不剥离）：白名单指令名 + 定界符判定，禁止流程指令；char 实例索引随 char_max、资源引用随 known_refs 一并校验
