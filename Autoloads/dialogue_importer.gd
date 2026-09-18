@@ -4,7 +4,7 @@ const LOG_TAG := "Importer"
 ## BGalS v2 编译前端：行分类 → 缩进块拍平 → 线性 GalEventItemSequence。
 ## 产物中 基类 Instruction = 独立指令，PrevInstruction/PostInstruction = 前/后指令。
 
-const COMPILER_VERSION := "bgals2.3"
+const COMPILER_VERSION := "bgals2.4"
 
 var check: bool = true
 var read_dir: String = "res://scripts"
@@ -245,7 +245,7 @@ static func parse_script(lines: PackedStringArray, file_name: String, diags: Arr
 			block_stack.back()["dead"] = false
 			block_stack.back()["dead_reported"] = false
 			_check_dead(block_stack.back(), diags, file_name, line_no)
-			_emit_option(stripped, seq, diags, file_name, line_no)
+			_emit_option(stripped, seq, diags, file_name, line_no, block_stack.back())
 			prev_block_head_kind = "option"
 			prev_indent = indent
 			continue
@@ -267,8 +267,8 @@ static func parse_script(lines: PackedStringArray, file_name: String, diags: Arr
 						_diagnose_static(diags, file_name, line_no, "error", "选项组不支持嵌套")
 						break
 				_check_dead(block_stack.back(), diags, file_name, line_no)
-				block_stack.append({"type": "option", "indent": indent, "has_else": false, "dead": false, "dead_reported": false})
-				_emit_option(stripped, seq, diags, file_name, line_no)
+				block_stack.append({"type": "option", "indent": indent, "has_else": false, "dead": false, "dead_reported": false, "members": []})
+				_emit_option(stripped, seq, diags, file_name, line_no, block_stack.back())
 				prev_block_head_kind = "option"
 			LineKind.IF_HEAD:
 				_check_dead(block_stack.back(), diags, file_name, line_no)
@@ -345,7 +345,16 @@ static func _classify_line(text: String) -> LineKind:
 static func _close_block(block: Dictionary, seq: Array[GalEventItem]) -> void:
 	match block["type"]:
 		"option":
+			# 组结构回填：is_head/body_start/next_option/group_end 烧进参数（运行时零扫描零状态）
+			var end_idx := seq.size()
 			seq.append(Instruction.new(Instruction.Head.OPTION_END))
+			var members: Array = block["members"]
+			for k in members.size():
+				var ins := seq[members[k]] as Instruction
+				ins.params[2] = (k == 0)
+				ins.params[3] = members[k] + 1
+				ins.params[4] = members[k + 1] if k + 1 < members.size() else -1
+				ins.params[5] = end_idx
 		"if":
 			seq.append(Instruction.new(Instruction.Head.END_IF))
 
@@ -765,7 +774,8 @@ static func _parse_trans(rest: Array[String], diags: Array[Dictionary], file: St
 
 # --- 选项与条件 ---
 
-static func _emit_option(text: String, seq: Array[GalEventItem], diags: Array[Dictionary], file: String, line_no: int) -> void:
+## 选项组成员索引登记进 frame["members"]，供 _close_block 回填组结构（is_head/body_start/next_option/group_end）
+static func _emit_option(text: String, seq: Array[GalEventItem], diags: Array[Dictionary], file: String, line_no: int, frame: Dictionary) -> void:
 	var body := _strip_inline_comment(text.substr(1).strip_edges())
 	if body.is_empty():
 		_diagnose_static(diags, file, line_no, "error", "选项缺少文本")
@@ -803,6 +813,7 @@ static func _emit_option(text: String, seq: Array[GalEventItem], diags: Array[Di
 		tokens = parsed
 	var ins := Instruction.new(Instruction.Head.OPTION, [option_text])
 	ins.params[1] = tokens
+	(frame["members"] as Array).append(seq.size())
 	seq.append(ins)
 
 

@@ -16,9 +16,6 @@ var iterate_mode: IterateMode = IterateMode.DEFAULT
 var idx := 0
 var log_idx := 0
 
-# 当前选项块的结束位置（OPTION_END 索引），-1 表示不在选项中
-var current_option_end_idx: int = -1
-
 # --- 逻辑流控制 ---
 # 逻辑层级执行状态栈，元素为是否已有分支执行
 #（分支跳转目标在编译期烧进指令参数，运行时无跳转表——见 DialogueImporter._resolve_condition_targets）
@@ -326,7 +323,6 @@ func next_story(free: bool = false) -> void:
 
 	# reset
 	idx = 0
-	current_option_end_idx = -1 # 切换脚本时，必须强制重置选项状态
 	_execution_stack.clear() # 重置逻辑流控制状态
 	dialogue_ui.clear_display()
 	gal_world2d.set_background_texture(null)
@@ -682,44 +678,30 @@ func _set_begin_script(ins: Instruction) -> void:
 
 
 func _option_begin(ins: Instruction) -> void:
-	# 参数: [text: String, tokens: Array]
-	# 如果已经在本组选项中（current_option_end_idx 有效），并且还没走到 END，
-	# 说明当前是在其他分支里再次遇到 OPTION，直接跳到本组选项尾部
-	if current_option_end_idx != -1 and idx < current_option_end_idx:
-		idx = current_option_end_idx
-		# 此时 idx 指向 OPTION_END
-		# run_script 下一次循环会处理 OPTION_END，从而重置状态并继续往下
+	# 参数: [text, tokens, is_head, body_start, next_option, group_end]（组结构编译期回填）
+	# 非组头：只可能是在分支体内遇到兄弟 OPTION → 直跳组尾（防穿透，无运行时状态）
+	if not (ins.params[2] as bool):
+		idx = ins.params[5] as int
 		return
 
-	# 扫描本组选项（含当前 OPTION 自身；带条件的选项求值过滤）
+	# 组头：沿 next_option 链收集可见项（条件运行时求值；分支起点直接用回填的 body_start）
 	var options_text: PackedStringArray = []
 	var options_indices: Array[int] = []
-	var scan_idx := idx - 1  # handler 调用前 _step 已 idx += 1，回指当前 OPTION
-
-	while scan_idx < cur_script.seq.size():
-		var item := cur_script.seq[scan_idx]
-		if item is Instruction:
-			if item.head == Instruction.Head.OPTION_END:
-				# 找到了当前这组选项的最终结束点，记录下来！
-				current_option_end_idx = scan_idx
-				# 这里不 +1，因为我们要跳到 OPTION_END 本身，让它去执行重置逻辑
-				break
-
-			if item.head == Instruction.Head.OPTION and _option_condition_passed(item):
-				# 选项文本与对话同口径：转义 + {var} 插值（无锚点时间轴，方括号原样保留）
-				options_text.append(DialogueRenderer.render_plain(item.params[0], Global.vars))
-				options_indices.append(scan_idx + 1)
-		scan_idx += 1
-
-	# 没找到 OPTION_END 时给出提示
-	if current_option_end_idx == -1:
-		GalLogger.warn(LOG_TAG, "未找到 OPTION_END，选项逻辑可能出错")
+	var cursor := ins
+	while true:
+		if _option_condition_passed(cursor):
+			# 选项文本与对话同口径：转义 + {var} 插值（无锚点时间轴，方括号原样保留）
+			options_text.append(DialogueRenderer.render_plain(cursor.params[0], Global.vars))
+			options_indices.append(cursor.params[3] as int)
+		var next_idx := cursor.params[4] as int
+		if next_idx < 0:
+			break
+		cursor = cur_script.seq[next_idx] as Instruction
 
 	# 空选项组防护（条件过滤后无存活选项）：跳过整组，不弹 UI
 	if options_text.is_empty():
 		GalLogger.warn(LOG_TAG, "选项组条件过滤后为空，跳过整组")
-		if current_option_end_idx != -1:
-			idx = current_option_end_idx
+		idx = ins.params[5] as int
 		return
 
 	# 对话框淡出完成后再弹出选项（信号串联，不挂起协程）
@@ -764,8 +746,8 @@ func _on_option_canceled() -> void:
 
 
 func _option_end(_ins: Instruction = null) -> void:
-	# 选项结构结束，清除记录
-	current_option_end_idx = -1
+	# 选项结构收尾标记（组结构已编译期回填进各 OPTION 参数，此处无事可做）
+	pass
 
 
 func _jump_script(ins: Instruction) -> void:
@@ -782,7 +764,6 @@ func _jump_main_menu(_ins: Instruction = null) -> void:
 	_suspended = false
 	_option_hold = Synchronizer.INVALID
 	Synchronizer.reset()  # 清全部挂起与预约计时 + 回 INTERACT
-	current_option_end_idx = -1 # 回到主菜单时清理状态
 	
 	if dialogue_ui.visible:
 		dialogue_ui.fade_out()
@@ -934,7 +915,6 @@ func load_game(sg: SavedGame):
 		return
 
 	# 清理状态（挂起簿记由 next_story 内的 Synchronizer.reset() 统一清）
-	current_option_end_idx = -1
 	_option_hold = Synchronizer.INVALID
 	_suspended = false
 	# execution_stack 不再入档/恢复（R9 缺陷 3：死字段，重放会重建）

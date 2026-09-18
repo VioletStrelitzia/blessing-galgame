@@ -26,7 +26,7 @@ enum Head {
 	CHAR_CHANGE_TEXTURE,	# char <idx> texture <path>
 
 	# [选择系统]
-	OPTION,     			# * 文本 [if:条件]（条件为后缀记号流，空 = 恒真）
+	OPTION,     			# * 文本 [if:条件]（tokens 空 = 恒真；组结构编译期回填：is_head/body_start/next_option/group_end）
 	OPTION_END,     		# 编译期生成的选项组收尾
 
 	# [变量操作]
@@ -131,11 +131,15 @@ func _init(head_: Head = Head.BLANK, args: Array[String] = []) -> void:
 			params.append(_arg_int(args, 0, 0))
 			params.append(_arg_str(args, 1, ""))
 
-		# 选项：文本 + 条件记号流（空 = 恒真）。tokens 由编译器直接写入，不经字符串 args
-		# 参数: [text: String, tokens: Array]
+		# 选项：文本 + 条件记号流（tokens 由编译器直接写入）+ 组结构（编译期回填）
+		# 参数: [text: String, tokens: Array, is_head: bool, body_start: int, next_option: int, group_end: int]
 		Head.OPTION:
 			params.append(_arg_str(args, 0, ""))
 			params.append([])
+			params.append(false)
+			params.append(0)
+			params.append(-1)
+			params.append(0)
 
 		# 无参数指令
 		Head.JUMP_MAIN_MENU, \

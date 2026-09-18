@@ -68,7 +68,6 @@ func _load_seq(items: Array[GalEventItem]) -> void:
 	SM.cur_script = s
 	SM.idx = 0
 	SM._execution_stack.clear()
-	SM.current_option_end_idx = -1
 	SYNC.preempt(SYNC.PRIO_RESET)  # 清挂起但不动模式（模式由用例自管）
 
 
@@ -81,7 +80,6 @@ func _load_text(lines: Array) -> void:
 	SM.cur_script = compiled
 	SM.idx = 0
 	SM._execution_stack.clear()
-	SM.current_option_end_idx = -1
 	SYNC.preempt(SYNC.PRIO_RESET)  # 清挂起但不动模式（模式由用例自管）
 
 
