@@ -24,6 +24,11 @@ signal voice_finished
 @onready var sfx_manager: SFXAudioPlayerManager = $SFXManager
 @onready var voice_manager: VoiceAudioPlayerManager = $VoiceManager
 
+## 语音 ducking：voice 播放期间 Music 总线临时衰减的 dB 数（config.json audio.voice_duck_db，0 = 关闭）
+## 增减采用相对偏移（duck 期间用户在设置里调音不被覆盖）
+var _voice_duck_db := 0.0
+var _ducking := false
+
 
 func _ready() -> void:
 	# 启动断言：任一总线名解析失败说明总线布局被改，立刻暴露而非静默错位
@@ -34,6 +39,7 @@ func _ready() -> void:
 	sfx_manager.set_bus(BUS_NAMES[Bus.SFX])
 	voice_manager.set_bus(BUS_NAMES[Bus.VOICE])
 	voice_manager.voice_finished.connect(_on_voice_finished)
+	_voice_duck_db = Global.config.get("audio", {}).get("voice_duck_db", 0.0)
 	GalLogger.info(LOG_TAG, "加载完成")
 
 
@@ -47,6 +53,7 @@ func _exit_tree() -> void:
 
 
 func _on_voice_finished() -> void:
+	_unduck_music()
 	voice_finished.emit()
 
 
@@ -98,11 +105,28 @@ func set_sfx_volume(audio: AudioStream, volume: float, fade: float = 0.3) -> voi
 
 func play_voice(audio: AudioStream, from_position: float = 0.0, volume: float = 1.0) -> void:
 	voice_manager.play(audio, from_position, volume)
+	_duck_music()
 
 
 ## fade <= 0 硬停
 func stop_voice(fade: float = 0.1) -> void:
 	voice_manager.stop(fade)
+	_unduck_music()
+
+
+## 语音 ducking：语音响起时 Music 总线临时压低（相对偏移，设置调音不被覆盖）
+func _duck_music() -> void:
+	if _voice_duck_db <= 0.0 or _ducking:
+		return
+	_ducking = true
+	set_volume_db(Bus.MUSIC, get_volume_db(Bus.MUSIC) - _voice_duck_db)
+
+
+func _unduck_music() -> void:
+	if not _ducking:
+		return
+	_ducking = false
+	set_volume_db(Bus.MUSIC, get_volume_db(Bus.MUSIC) + _voice_duck_db)
 
 
 ## 语音是否在发声（淡出停止中视为不在播；AUTO 等语音播完的判定依据）
