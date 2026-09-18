@@ -80,61 +80,65 @@ enum CondTag {
 @export var head: Head
 @export var params: Array[Variant] = []
 
-## 参数形状表：head → [[参数名, 类型, 默认值]]。
+## 参数形状表：head → [[参数名, 类型, 默认值, 语义角色]]。
 ## 参数在编译期由 DialogueImporter 产出即定型（类型化，不经字符串回环）；
 ## 本表提供默认值补齐、类型校验与 from_strings 转型（测试辅助路径）。
+## 语义角色（role）为开放 StringName，不写死：编译期校验与工具链 schema 导出共用；
+## 未知角色仅作元数据，不参与校验。内建角色：
+##   "audio"/"texture" —— index.json 登记表引用；"script" —— 剧本名（编译目录）；
+##   "res_path" —— res:// 直路径；"scene_type" —— 场景类型（world2d/ui）
 enum _T { STR, FLOAT, INT, BOOL, ARR }
 
 const _SPEC: Dictionary = {
 	# [音频指令]
-	Head.MUSIC_PLAY: [["path", _T.STR, ""], ["from", _T.FLOAT, 0.0], ["loop", _T.BOOL, true], ["fade_in", _T.FLOAT, 1.0], ["fade_out", _T.FLOAT, 1.0], ["volume", _T.FLOAT, 1.0]],
-	Head.MUSIC_STOP: [["fade", _T.FLOAT, 1.0]],
-	Head.VOICE_PLAY: [["path", _T.STR, ""], ["from", _T.FLOAT, 0.0], ["volume", _T.FLOAT, 1.0]],
-	Head.VOICE_STOP: [["fade", _T.FLOAT, 0.1]],
-	Head.SFX_PLAY: [["path", _T.STR, ""], ["from", _T.FLOAT, 0.0], ["volume", _T.FLOAT, 1.0], ["loop", _T.BOOL, false]],
-	Head.SFX_STOP: [["ref", _T.STR, ""], ["fade", _T.FLOAT, 0.3]],  # ref 为空 = 停止全部 SFX
-	Head.SFX_VOLUME: [["ref", _T.STR, ""], ["volume", _T.FLOAT, 1.0], ["fade", _T.FLOAT, 0.3]],
-	Head.MUSIC_VOLUME: [["volume", _T.FLOAT, 1.0], ["fade", _T.FLOAT, 0.5]],
+	Head.MUSIC_PLAY: [["path", _T.STR, "", "audio"], ["from", _T.FLOAT, 0.0, ""], ["loop", _T.BOOL, true, ""], ["fade_in", _T.FLOAT, 1.0, ""], ["fade_out", _T.FLOAT, 1.0, ""], ["volume", _T.FLOAT, 1.0, ""]],
+	Head.MUSIC_STOP: [["fade", _T.FLOAT, 1.0, ""]],
+	Head.VOICE_PLAY: [["path", _T.STR, "", "audio"], ["from", _T.FLOAT, 0.0, ""], ["volume", _T.FLOAT, 1.0, ""]],
+	Head.VOICE_STOP: [["fade", _T.FLOAT, 0.1, ""]],
+	Head.SFX_PLAY: [["path", _T.STR, "", "audio"], ["from", _T.FLOAT, 0.0, ""], ["volume", _T.FLOAT, 1.0, ""], ["loop", _T.BOOL, false, ""]],
+	Head.SFX_STOP: [["ref", _T.STR, "", "audio"], ["fade", _T.FLOAT, 0.3, ""]],  # ref 为空 = 停止全部 SFX
+	Head.SFX_VOLUME: [["ref", _T.STR, "", "audio"], ["volume", _T.FLOAT, 1.0, ""], ["fade", _T.FLOAT, 0.3, ""]],
+	Head.MUSIC_VOLUME: [["volume", _T.FLOAT, 1.0, ""], ["fade", _T.FLOAT, 0.5, ""]],
 
 	# [视觉与资源]
-	Head.SET_BACKGROUND: [["path", _T.STR, ""], ["time", _T.FLOAT, 0.0]],
+	Head.SET_BACKGROUND: [["path", _T.STR, "", "texture"], ["time", _T.FLOAT, 0.0, ""]],
 
 	# [角色动画]
-	Head.CHAR_SETUP: [["char_index", _T.INT, 0], ["path", _T.STR, ""], ["x", _T.FLOAT, 0.0], ["y", _T.FLOAT, 0.0]],
-	Head.CHAR_SHOW_FADE: [["char_index", _T.INT, 0], ["duration", _T.FLOAT, 1.0], ["wait", _T.BOOL, false]],
-	Head.CHAR_HIDE_FADE: [["char_index", _T.INT, 0], ["duration", _T.FLOAT, 1.0], ["wait", _T.BOOL, false]],
-	Head.CHAR_MOVE_TO: [["char_index", _T.INT, 0], ["x", _T.FLOAT, 0.0], ["y", _T.FLOAT, 0.0], ["duration", _T.FLOAT, 1.0], ["wait", _T.BOOL, false]],
-	Head.CHAR_WAIT: [["char_index", _T.INT, 0], ["duration", _T.FLOAT, 0.0]],
-	Head.CHAR_CHANGE_TEXTURE: [["char_index", _T.INT, 0], ["path", _T.STR, ""]],
+	Head.CHAR_SETUP: [["char_index", _T.INT, 0, ""], ["path", _T.STR, "", "texture"], ["x", _T.FLOAT, 0.0, ""], ["y", _T.FLOAT, 0.0, ""]],
+	Head.CHAR_SHOW_FADE: [["char_index", _T.INT, 0, ""], ["duration", _T.FLOAT, 1.0, ""], ["wait", _T.BOOL, false, ""]],
+	Head.CHAR_HIDE_FADE: [["char_index", _T.INT, 0, ""], ["duration", _T.FLOAT, 1.0, ""], ["wait", _T.BOOL, false, ""]],
+	Head.CHAR_MOVE_TO: [["char_index", _T.INT, 0, ""], ["x", _T.FLOAT, 0.0, ""], ["y", _T.FLOAT, 0.0, ""], ["duration", _T.FLOAT, 1.0, ""], ["wait", _T.BOOL, false, ""]],
+	Head.CHAR_WAIT: [["char_index", _T.INT, 0, ""], ["duration", _T.FLOAT, 0.0, ""]],
+	Head.CHAR_CHANGE_TEXTURE: [["char_index", _T.INT, 0, ""], ["path", _T.STR, "", "texture"]],
 
 	# [选择系统]（tokens 条件记号流；is_head/body_start/next_option/group_end 编译期回填）
-	Head.OPTION: [["text", _T.STR, ""], ["tokens", _T.ARR, []], ["is_head", _T.BOOL, false], ["body_start", _T.INT, 0], ["next_option", _T.INT, -1], ["group_end", _T.INT, 0]],
+	Head.OPTION: [["text", _T.STR, "", ""], ["tokens", _T.ARR, [], ""], ["is_head", _T.BOOL, false, ""], ["body_start", _T.INT, 0, ""], ["next_option", _T.INT, -1, ""], ["group_end", _T.INT, 0, ""]],
 
 	# [变量操作]（value 为字符串：数字字面量或变量名，运行时解析）
-	Head.VAR_SET: [["key", _T.STR, ""], ["value", _T.STR, ""]],
-	Head.VAR_ADD: [["key", _T.STR, ""], ["value", _T.STR, ""]],
-	Head.VAR_SUB: [["key", _T.STR, ""], ["value", _T.STR, ""]],
-	Head.VAR_MUL: [["key", _T.STR, ""], ["value", _T.STR, ""]],
-	Head.VAR_DIV: [["key", _T.STR, ""], ["value", _T.STR, ""]],
-	Head.VAR_RANDOM: [["key", _T.STR, ""], ["min", _T.FLOAT, 0.0], ["max", _T.FLOAT, 1.0]],
+	Head.VAR_SET: [["key", _T.STR, "", ""], ["value", _T.STR, "", ""]],
+	Head.VAR_ADD: [["key", _T.STR, "", ""], ["value", _T.STR, "", ""]],
+	Head.VAR_SUB: [["key", _T.STR, "", ""], ["value", _T.STR, "", ""]],
+	Head.VAR_MUL: [["key", _T.STR, "", ""], ["value", _T.STR, "", ""]],
+	Head.VAR_DIV: [["key", _T.STR, "", ""], ["value", _T.STR, "", ""]],
+	Head.VAR_RANDOM: [["key", _T.STR, "", ""], ["min", _T.FLOAT, 0.0, ""], ["max", _T.FLOAT, 1.0, ""]],
 
 	# [逻辑流控制]（tokens 与跳转目标由编译期回填）
-	Head.IF: [["tokens", _T.ARR, []], ["next_target", _T.INT, 0]],
-	Head.ELSE_IF: [["tokens", _T.ARR, []], ["next_target", _T.INT, 0], ["end_target", _T.INT, 0]],
-	Head.ELSE: [["end_target", _T.INT, 0]],
+	Head.IF: [["tokens", _T.ARR, [], ""], ["next_target", _T.INT, 0, ""]],
+	Head.ELSE_IF: [["tokens", _T.ARR, [], ""], ["next_target", _T.INT, 0, ""], ["end_target", _T.INT, 0, ""]],
+	Head.ELSE: [["end_target", _T.INT, 0, ""]],
 
 	# [脚本跳转]
-	Head.SET_BEGIN_SCRIPT: [["script_name", _T.STR, ""]],
-	Head.JUMP_SCRIPT: [["script_name", _T.STR, ""]],
+	Head.SET_BEGIN_SCRIPT: [["script_name", _T.STR, "", "script"]],
+	Head.JUMP_SCRIPT: [["script_name", _T.STR, "", "script"]],
 
 	# [场景管理原子指令]
-	Head.SCENE_MOUNT: [["type", _T.STR, "world2d"], ["name", _T.STR, "default"], ["path", _T.STR, ""], ["time", _T.FLOAT, 0.0], ["anim", _T.STR, "fade"]],
-	Head.SCENE_UNMOUNT: [["type", _T.STR, "world2d"], ["name", _T.STR, "default"], ["time", _T.FLOAT, 0.0], ["anim", _T.STR, "fade"], ["free", _T.BOOL, true]],
-	Head.TRANSITION_IN: [["time", _T.FLOAT, 1.0], ["anim", _T.STR, "fade_in"], ["wait", _T.BOOL, true]],
-	Head.TRANSITION_OUT: [["time", _T.FLOAT, 1.0], ["anim", _T.STR, "fade_out"], ["wait", _T.BOOL, true]],
+	Head.SCENE_MOUNT: [["type", _T.STR, "world2d", "scene_type"], ["name", _T.STR, "default", ""], ["path", _T.STR, "", "res_path"], ["time", _T.FLOAT, 0.0, ""], ["anim", _T.STR, "fade", ""]],
+	Head.SCENE_UNMOUNT: [["type", _T.STR, "world2d", "scene_type"], ["name", _T.STR, "default", ""], ["time", _T.FLOAT, 0.0, ""], ["anim", _T.STR, "fade", ""], ["free", _T.BOOL, true, ""]],
+	Head.TRANSITION_IN: [["time", _T.FLOAT, 1.0, ""], ["anim", _T.STR, "fade_in", ""], ["wait", _T.BOOL, true, ""]],
+	Head.TRANSITION_OUT: [["time", _T.FLOAT, 1.0, ""], ["anim", _T.STR, "fade_out", ""], ["wait", _T.BOOL, true, ""]],
 
 	# [剧情等待]
-	Head.WAIT: [["duration", _T.FLOAT, 0.0]],
+	Head.WAIT: [["duration", _T.FLOAT, 0.0, ""]],
 }
 
 

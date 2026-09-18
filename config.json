@@ -1,7 +1,4 @@
 {
-	"audio": {
-		"voice_duck_db": 0.0
-	},
 	"audio_dir": "Resources/audio",
 	"begin_script": "demo_scene1",
 	"character": {
