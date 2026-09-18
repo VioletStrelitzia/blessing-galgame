@@ -250,6 +250,34 @@ func _init() -> void:
 	]), "test", rw_diags)
 	ok = _assert(rw_diags.is_empty(), "保留字前缀变量名不应误报: %s" % [rw_diags]) and ok
 
+	# 33. 资源引用编译期校验：注入登记表时未登记引用仅警告（行级与锚点同口径）
+	var refs := {
+		"audio": {"demo_bgm": "res://Resources/audio/demo_bgm.wav"},
+		"texture": {"room": "res://Resources/image/room.png"},
+	}
+	var ref_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray([
+		"bg room",                        # 已登记
+		"music demo_bgm",                 # 已登记
+		"sfx demo_sfx",                   # 未登记 → 警告
+		"voice v1",                       # 未登记 → 警告
+		"char 0 setup ghost 0.5,0.9",     # 未登记 → 警告
+		"sfx stop demo_sfx",              # 未登记 → 警告
+		"sfx volume demo_sfx 0.5",        # 未登记 → 警告
+		"引路人: 锚点[sfx demo_bgm]合法",
+		"引路人: 锚点[music ghost]警告",    # 未登记 → 警告
+	]), "test", ref_diags, [], -1, refs)
+	var ref_warns := 0
+	for d in ref_diags:
+		if d["level"] == "warning" and (d["msg"] as String).contains("未在登记表"):
+			ref_warns += 1
+	ok = _assert(ref_warns == 6, "未登记引用应警告恰好 6 次，实际 %d: %s" % [ref_warns, ref_diags]) and ok
+
+	# 34. 不注入登记表时不校验（Renderer 锚点解析等无表路径零干扰）
+	var no_ref_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray(["music ghost", "bg ghost"]), "test", no_ref_diags)
+	ok = _assert(no_ref_diags.is_empty(), "不注入登记表时不应产生引用诊断: %s" % [no_ref_diags]) and ok
+
 	print("DIAGNOSTICS_TEST_DONE ok=", ok)
 	quit(0 if ok else 1)
 

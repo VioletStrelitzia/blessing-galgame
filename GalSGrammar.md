@@ -34,6 +34,7 @@
 - 输出文件名为**相对路径去掉扩展名、路径分隔符替换为下划线**：`scripts/demo/scene1.txt` → `GalSs/demo_scene1.tres`，其**脚本名**为 `demo_scene1`。`jump` 等指令引用的就是这个名字。
 - 编译按 SHA256 哈希增量进行（哈希记录于 `GalSs/.hash`），并混入**编译器版本盐**：编译器换代时全量重编，防止旧产物的枚举序列化错位。
 - 产物带 `compiler` 版本标记，`ResourceManager` 加载时校验——`scripts.check` 置 `false` 的纯运行模式（模组包）下，陈旧产物会被拒绝加载而不是静默错位。
+- `bg`/`music`/`sfx`/`voice`/`char` 的资源引用在编译期对照 `index.json` 登记表校验（含文本内联锚点），未登记给出**警告**而不是错误——模组 PCK 可提供登记表之外的资源。`scene mount` 的 `res://` 直路径不在此列。
 - **剧本名不得为 `main_menu`**（与 `jump main_menu` 特殊目标冲突），编译期报错。
 
 ## 行规则
