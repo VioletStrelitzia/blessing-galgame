@@ -6,41 +6,47 @@ const LOG_TAG := "Voice"
 
 signal voice_finished
 
-var _bus_name: String
+## 进行中的淡出 Tween（重播时须终止，防止旧回调掐断新语音）
+var _fade_tween: Tween
+
+
+func _init() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 
 
 func set_bus(bus_name: String):
-	self._bus_name = bus_name
 	player.bus = bus_name
 	GalLogger.info(LOG_TAG, "语音管理器已设置总线为: " + bus_name)
 
 
-func play(audio: AudioStream, from_position: float = 0):
+func play(audio: AudioStream, from_position: float = 0.0, volume: float = 1.0) -> void:
+	_kill_fade_tween()
 	player.stop()
-
-	# 在播放前，获取 Voice 总线的当前音量并应用到播放器上
-	var bus_index = AudioServer.get_bus_index(_bus_name)
-	if bus_index != -1:
-		player.volume_db = AudioServer.get_bus_volume_db(bus_index)
-	else:
-		# 如果总线不存在，则默认使用 0dB
-		player.volume_db = 0.0
-		GalLogger.warn(LOG_TAG, "在语音管理器中找不到总线: '%s'" % _bus_name)
-
+	# 语音永不循环：共享缓存流可能被先前 sfx/music 的 loop:true 污染，逐次显式复位
+	Utils.set_stream_loop(audio, false)
+	# 播放器 volume_db 只承载曲目自身音量（线性），总线音量由总线单独衰减
+	player.volume_db = linear_to_db(volume)
 	player.stream = audio
 	player.play(from_position)
 
 
-func pause() -> void:
-	player.stream_paused = true
+## tween 淡出到 -80dB 后停止；fade <= 0 硬停
+func stop(fade: float = 0.1) -> void:
+	if not player.playing:
+		return
+	_kill_fade_tween()
+	if fade <= 0.0:
+		player.stop()
+		return
+	_fade_tween = create_tween()
+	_fade_tween.tween_property(player, "volume_db", -80.0, fade)
+	_fade_tween.tween_callback(player.stop)
 
 
-func resume() -> void:
-	player.stream_paused = false
-
-
-func stop(_execute_all: bool = true):
-	player.stop()
+func _kill_fade_tween() -> void:
+	if _fade_tween and _fade_tween.is_valid():
+		_fade_tween.kill()
+	_fade_tween = null
 
 
 func _on_voice_player_finished() -> void:

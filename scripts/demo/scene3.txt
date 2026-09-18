@@ -1,6 +1,7 @@
 // ============================================
 // Blessing Galgame Engine —— 演示剧本 3（BGalS v2）
-// 演示：scene mount/unmount、trans 转场、wait 等待、char wait:true
+// 演示：scene mount/unmount、trans 转场、wait 等待、char wait:true、
+//       v2.1 音频（sfx loop 环境音、music volume、sfx stop）
 // ============================================
 
 bg demo_stage
@@ -21,6 +22,15 @@ trans in time:0.5 wait:true
 wait 1.0
 
 引路人: 刚才停顿了一秒。
+
+// v2.1 音频：环境音循环、在播曲目调音量、按引用停止（演示暂借 BGM 资源充当音效）
+sfx demo_bgm volume:0.15 loop:true
+引路人: 这层低低的循环底噪来自 sfx loop:true——环境音用法。
+music volume 0.4 fade:0.8
+引路人: BGM 压暗了——music volume 调节在播音轨，不重启曲目。
+sfx stop demo_bgm fade:0.5
+music volume 1.0 fade:0.8
+引路人: 环境音停止，BGM 恢复全量。
 
 // char wait:true：等立绘移动完成才继续
 char 0 setup demo_char_a 0.3,0.95

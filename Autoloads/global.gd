@@ -95,26 +95,31 @@ func add_var(key: String, value: float) -> void:
 
 
 func apply_loaded_settings() -> void:
-	# 音量
-	var initial_volume = config["initial_volume"]
-	AudioServer.set_bus_volume_db(AudioManager.Bus.MASTER, initial_volume["master"])
-	AudioServer.set_bus_volume_db(AudioManager.Bus.MUSIC, initial_volume["music"])
-	AudioServer.set_bus_volume_db(AudioManager.Bus.SFX, initial_volume["sfx"])
-	AudioServer.set_bus_volume_db(AudioManager.Bus.VOICE, initial_volume["voice"])
+	# 音量：AudioManager 在 Global 之后注册为 autoload，此时其实例方法尚不可达，
+	# 延迟到首帧末（全部 autoload 就绪后）经门面应用
+	_apply_volume_settings.call_deferred()
 
 	# 对话
 	text_interval = config["dialogue_ui"]["wait_time_per_char"]
 	auto_wait_time = config["dialogue_ui"]["auto_wait_time"]
-	
+
 	GalLogger.info(LOG_TAG, "设置已应用")
+
+
+func _apply_volume_settings() -> void:
+	var initial_volume = config["initial_volume"]
+	AudioManager.set_volume_db(AudioManager.Bus.MASTER, initial_volume["master"])
+	AudioManager.set_volume_db(AudioManager.Bus.MUSIC, initial_volume["music"])
+	AudioManager.set_volume_db(AudioManager.Bus.SFX, initial_volume["sfx"])
+	AudioManager.set_volume_db(AudioManager.Bus.VOICE, initial_volume["voice"])
 
 
 func save_config() -> void:
 	# 从当前状态回写到 config（保存的是 dB 值）
-	config["initial_volume"]["master"] = AudioServer.get_bus_volume_db(AudioManager.Bus.MASTER)
-	config["initial_volume"]["music"] = AudioServer.get_bus_volume_db(AudioManager.Bus.MUSIC)
-	config["initial_volume"]["sfx"] = AudioServer.get_bus_volume_db(AudioManager.Bus.SFX)
-	config["initial_volume"]["voice"] = AudioServer.get_bus_volume_db(AudioManager.Bus.VOICE)
+	config["initial_volume"]["master"] = AudioManager.get_volume_db(AudioManager.Bus.MASTER)
+	config["initial_volume"]["music"] = AudioManager.get_volume_db(AudioManager.Bus.MUSIC)
+	config["initial_volume"]["sfx"] = AudioManager.get_volume_db(AudioManager.Bus.SFX)
+	config["initial_volume"]["voice"] = AudioManager.get_volume_db(AudioManager.Bus.VOICE)
 	
 	config["dialogue_ui"]["wait_time_per_char"] = text_interval
 	config["dialogue_ui"]["auto_wait_time"] = auto_wait_time

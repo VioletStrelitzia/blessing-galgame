@@ -72,6 +72,117 @@ func _init() -> void:
 			dead_warns += 1
 	ok = _assert(dead_warns == 1, "jump 后死代码应警告恰好一次，实际 %d" % dead_warns) and ok
 
+	# 13. 未知参数键警告对 bg/music 同样生效（_parse_kv diags 传递补洞）
+	var kv_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray(
+		["bg room tiem:2", "music bgm lopo:true"]), "test", kv_diags)
+	var kv_warns := 0
+	for d in kv_diags:
+		if d["level"] == "warning" and (d["msg"] as String).contains("未知参数键"):
+			kv_warns += 1
+	ok = _assert(kv_warns == 2, "bg/music 的未知键应各警告一次，实际 %d" % kv_warns) and ok
+
+	# 14. 条件左值必须是变量名（字面量左值会被运行时按变量名查表得 0，静默走错分支）
+	ok = _expect_error(["if 3 > 2", "    对话"], "左值") and ok
+
+	# 15. 条件右值必须是数字或变量名
+	ok = _expect_error(["if a >= 1x", "    对话"], "右值") and ok
+
+	# 16. var 变量名必须是合法标识符；右值必须是数字或变量名
+	ok = _expect_error(["var 1a = 3"], "标识符") and ok
+	ok = _expect_error(["var a = 1x"], "右值") and ok
+
+	# 17. 合法 var/条件零误报（变量右值、负数字面量）
+	var ok_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray(
+		["var a = b", "if a >= b", "    对话", "if c >= -1.5", "    对话"]), "test", ok_diags)
+	ok = _assert(ok_diags.is_empty(), "合法 var/条件不应产生诊断: %s" % [ok_diags]) and ok
+
+	# 18. char 实例索引编译期越界校验（行级与锚点同口径）
+	var char_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray(
+		["char 5 show", "角色: 文本[char 9 hide]"]), "test", char_diags, [], 2)
+	var char_errs := 0
+	for d in char_diags:
+		if d["level"] == "error" and (d["msg"] as String).contains("越界"):
+			char_errs += 1
+	ok = _assert(char_errs == 2, "行级与锚点 char 越界应各报错一次，实际 %d" % char_errs) and ok
+
+	# 19. jump/begin 目标校验：不在编译目录警告（模组可提供目标），已登记不警告
+	var jump_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray(["jump ghost_script"]), "test", jump_diags, ["exists_script"])
+	var jump_warns := 0
+	for d in jump_diags:
+		if d["level"] == "warning" and (d["msg"] as String).contains("ghost_script"):
+			jump_warns += 1
+	ok = _assert(jump_warns == 1, "jump 未知目标应警告恰好一次，实际 %d" % jump_warns) and ok
+
+	var begin_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray(["begin exists_script"]), "test", begin_diags, ["exists_script"])
+	ok = _assert(begin_diags.is_empty(), "begin 已登记目标不应产生诊断: %s" % [begin_diags]) and ok
+
+	# 20. 音频指令数值校验补洞：music from/fade、sfx from 非法值报错
+	ok = _expect_error(["music bgm from:abc"], "music from") and ok
+	ok = _expect_error(["music bgm fade:abc"], "music fade") and ok
+	ok = _expect_error(["sfx demo_sfx from:abc"], "sfx from") and ok
+
+	# 21. volume 必须 0~1；合法值与 loop 零诊断
+	ok = _expect_error(["music bgm volume:1.5"], "0~1") and ok
+	ok = _expect_error(["sfx demo_sfx volume:-0.2"], "0~1") and ok
+	var vol_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray(
+		["music bgm volume:0.8", "sfx rain loop:true volume:0.5", "voice v1 volume:1"]), "test", vol_diags)
+	ok = _assert(vol_diags.is_empty(), "合法 volume/loop 不应产生诊断: %s" % [vol_diags]) and ok
+
+	# 22. sfx/voice stop 子动作：头部与默认参数断言
+	var stop_diags: Array[Dictionary] = []
+	var stop_seq := DialogueImporter.parse_script(PackedStringArray(
+		["sfx stop rain fade:1", "sfx stop", "voice stop"]), "test", stop_diags)
+	ok = _assert(stop_diags.is_empty(), "stop 子动作不应产生诊断: %s" % [stop_diags]) and ok
+	var s := stop_seq.seq
+	ok = _assert(s.size() == 3, "应产出 3 条指令，实际 %d" % s.size()) and ok
+	if s.size() == 3:
+		ok = _assert(s[0].head == Instruction.Head.SFX_STOP and s[0].params[0] == "rain" and s[0].params[1] == 1.0,
+			"sfx stop rain fade:1 参数应为 [rain, 1.0]，实际 %s" % [s[0].params]) and ok
+		ok = _assert(s[1].head == Instruction.Head.SFX_STOP and s[1].params[0] == "" and s[1].params[1] == 0.3,
+			"sfx stop 应为空引用 + 默认 fade 0.3，实际 %s" % [s[1].params]) and ok
+		ok = _assert(s[2].head == Instruction.Head.VOICE_STOP and s[2].params[0] == 0.1,
+			"voice stop 默认 fade 0.1，实际 %s" % [s[2].params]) and ok
+
+	# 23. voice stop 不接受引用参数
+	ok = _expect_error(["voice stop v1"], "不接受引用") and ok
+
+	# 24. 锚点内新参数与子动作可用
+	var anchor_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray(
+		["角色: 雨声起[sfx rain loop:true volume:0.4]，随后[music stop fade:2]收束。"]), "test", anchor_diags)
+	ok = _assert(anchor_diags.is_empty(), "锚点新参数不应产生诊断: %s" % [anchor_diags]) and ok
+
+	# 25. music volume 子动作：解析与校验
+	var mv_diags: Array[Dictionary] = []
+	var mv_seq := DialogueImporter.parse_script(PackedStringArray(
+		["music bgm", "music volume 0.3 fade:0.2"]), "test", mv_diags)
+	ok = _assert(mv_diags.is_empty(), "music volume 合法写法不应产生诊断: %s" % [mv_diags]) and ok
+	ok = _assert(mv_seq.seq.size() == 2, "应产出 2 条指令，实际 %d" % mv_seq.seq.size()) and ok
+	if mv_seq.seq.size() == 2:
+		var mv1 := mv_seq.seq[1] as Instruction
+		ok = _assert(mv1.head == Instruction.Head.MUSIC_VOLUME
+			and mv1.params[0] == 0.3 and mv1.params[1] == 0.2,
+			"music volume 参数应为 [0.3, 0.2]，实际 %s" % [mv1.params]) and ok
+	ok = _expect_error(["music volume 1.5"], "0~1") and ok
+	ok = _expect_error(["music volume"], "缺少音量") and ok
+
+	# 26. 子动作与播放臂的多余位置参数报错
+	ok = _expect_error(["music stop extra"], "位置参数") and ok
+	ok = _expect_error(["music volume 0.3 extra"], "位置参数") and ok
+	ok = _expect_error(["music bgm extra"], "位置参数") and ok
+	ok = _expect_error(["sfx rain fade:1 extra"], "位置参数") and ok
+
+	# 27. bool 参数校验（拼写错误不得静默落为 false）
+	ok = _expect_error(["music bgm loop:treu"], "布尔值") and ok
+	ok = _expect_error(["char 0 show wait:ture"], "布尔值") and ok
+	ok = _expect_error(["trans in wait:x"], "布尔值") and ok
+
 	print("DIAGNOSTICS_TEST_DONE ok=", ok)
 	quit(0 if ok else 1)
 

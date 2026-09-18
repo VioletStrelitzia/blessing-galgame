@@ -4,11 +4,13 @@ const LOG_TAG := "Importer"
 ## BGalS v2 编译前端：行分类 → 缩进块拍平 → 线性 GalEventItemSequence。
 ## 产物中 基类 Instruction = 独立指令，PrevInstruction/PostInstruction = 前/后指令。
 
-const COMPILER_VERSION := "bgals2"
+const COMPILER_VERSION := "bgals2.1"
 
 var check: bool = true
 var read_dir: String = "res://scripts"
 var save_dir: String = "res://GalSs"
+## char 实例上限（编译期越界校验用；< 0 不校验）。本类不引用 autoload（-s 测试可编译），由 ResourceManager 从 Global.config 注入
+var char_max: int = -1
 var hash_file_path: String
 
 var saved_hash: Dictionary = {}
@@ -64,6 +66,11 @@ func import_dialogues(path: String):
 		GalLogger.info(LOG_TAG, "剧本目录不存在，跳过导入: " + path)
 		return
 	var file_list := Utils.get_file_list(path, true, false)
+	# 跨文件校验上下文：jump/begin 目标名集合（模组 PCK 可提供额外剧本，缺失仅警告不报错）；
+	# char 实例上限由 ResourceManager 注入（config.json 的 character.max）
+	var known_scripts: Array[String] = []
+	for file_path in file_list:
+		known_scripts.append(file_path.get_basename().replace("/", "_").replace("\\", "_"))
 	for file_path in file_list:
 		var script_name := file_path.get_basename().replace("/", "_").replace("\\", "_")
 		if script_name == "main_menu":
@@ -71,11 +78,13 @@ func import_dialogues(path: String):
 			continue
 		import_dialogue(
 			path.path_join(file_path),
-			save_dir.path_join(script_name + ".tres")
+			save_dir.path_join(script_name + ".tres"),
+			known_scripts,
+			char_max
 		)
 
 
-func import_dialogue(text_path: String, output_path: String) -> void:
+func import_dialogue(text_path: String, output_path: String, known_scripts: Array[String] = [], char_max: int = -1) -> void:
 	var current_hash = calculate_text_hash(text_path)
 	if current_hash.is_empty():
 		GalLogger.error(LOG_TAG, "无法计算文本哈希: " + text_path)
@@ -94,7 +103,7 @@ func import_dialogue(text_path: String, output_path: String) -> void:
 	file.close()
 
 	var diags: Array[Dictionary] = []
-	var dialogue_group := parse_script(text.split("\n"), text_path, diags)
+	var dialogue_group := parse_script(text.split("\n"), text_path, diags, known_scripts, char_max)
 	_diagnostics.append_array(diags)
 	if _has_error(diags):
 		GalLogger.error(LOG_TAG, "存在编译错误，跳过产物保存: " + text_path)
@@ -154,7 +163,8 @@ func _diagnose(file: String, line: int, level: String, msg: String) -> void:
 # ============================================================
 
 ## 全文解析：行分类 + 缩进块拍平 + 诊断
-static func parse_script(lines: PackedStringArray, file_name: String, diags: Array[Dictionary]) -> GalEventItemSequence:
+## known_scripts 非空时校验 jump/begin 目标（仅警告，模组可提供目标）；char_max >= 0 时校验 char 实例索引（报错）
+static func parse_script(lines: PackedStringArray, file_name: String, diags: Array[Dictionary], known_scripts: Array[String] = [], char_max: int = -1) -> GalEventItemSequence:
 	var gal_event_item_sequence := GalEventItemSequence.new()
 	var seq: Array[GalEventItem] = gal_event_item_sequence.seq
 
@@ -264,14 +274,14 @@ static func parse_script(lines: PackedStringArray, file_name: String, diags: Arr
 			LineKind.DIALOGUE:
 				seen_dialogue = true
 				_check_dead(block_stack.back(), diags, file_name, line_no)
-				_emit_dialogue(stripped, seq, diags, file_name, line_no)
+				_emit_dialogue(stripped, seq, diags, file_name, line_no, char_max)
 				prev_block_head_kind = ""
 			LineKind.INSTRUCTION_POST, LineKind.INSTRUCTION_PREV, LineKind.INSTRUCTION_FREE:
 				if (kind == LineKind.INSTRUCTION_POST) and not seen_dialogue:
 					_diagnose_static(diags, file_name, line_no, "warning", "后指令 > 之前没有任何对话")
 				_check_dead(block_stack.back(), diags, file_name, line_no)
 				var before := seq.size()
-				_emit_instruction(stripped, kind, seq, diags, file_name, line_no)
+				_emit_instruction(stripped, kind, seq, diags, file_name, line_no, known_scripts, char_max)
 				# jump 之后同块内容不可达
 				if seq.size() > before:
 					var head: int = (seq[seq.size() - 1] as Instruction).head
@@ -335,7 +345,7 @@ static func _close_block(block: Dictionary, seq: Array[GalEventItem]) -> void:
 
 # --- 指令行 ---
 
-static func _emit_instruction(text: String, kind: LineKind, seq: Array[GalEventItem], diags: Array[Dictionary], file: String, line_no: int) -> void:
+static func _emit_instruction(text: String, kind: LineKind, seq: Array[GalEventItem], diags: Array[Dictionary], file: String, line_no: int, known_scripts: Array[String] = [], char_max: int = -1) -> void:
 	var content := text
 	if kind == LineKind.INSTRUCTION_POST or kind == LineKind.INSTRUCTION_PREV:
 		content = text.substr(1).strip_edges()
@@ -346,7 +356,7 @@ static func _emit_instruction(text: String, kind: LineKind, seq: Array[GalEventI
 				"if/elif/else/选项是块结构语句，不接受前/后指令前缀（去掉行首的 < 或 >）")
 			return
 
-	var ins := parse_instruction_line(content, diags, file, line_no)
+	var ins := parse_instruction_line(content, diags, file, line_no, known_scripts, char_max)
 	if ins == null:
 		return
 	match kind:
@@ -369,7 +379,8 @@ static func _params_to_strings(params: Array[Variant]) -> Array[String]:
 
 ## 解析单行指令（无前缀标记）。失败返回 null 并记录诊断。
 ## 也被 DialogueRenderer 用于锚点解析（diags 传空数组则静默返回 null）。
-static func parse_instruction_line(content: String, diags: Array[Dictionary] = [], file: String = "", line_no: int = 0) -> Instruction:
+## known_scripts 非空时校验 jump/begin 目标（仅警告）；char_max >= 0 时校验 char 实例索引（报错）。
+static func parse_instruction_line(content: String, diags: Array[Dictionary] = [], file: String = "", line_no: int = 0, known_scripts: Array[String] = [], char_max: int = -1) -> Instruction:
 	var args := _split_cli_args(content)
 	if args.is_empty():
 		return null
@@ -378,7 +389,7 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 
 	match key:
 		"bg":
-			var kv := _parse_kv(rest, ["time"])
+			var kv := _parse_kv(rest, ["time"], diags, file, line_no)
 			if kv["pos"].size() < 1:
 				return _fail(diags, file, line_no, "bg 缺少背景引用名")
 			var bg_time: String = kv["kv"].get("time", "0")
@@ -386,33 +397,86 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 				return null
 			return Instruction.new(Instruction.Head.SET_BACKGROUND, [kv["pos"][0], bg_time])
 		"music":
-			if rest.size() > 0 and rest[0] in ["stop", "pause", "resume"]:
+			if rest.size() > 0 and rest[0] in ["stop", "pause", "resume", "volume"]:
 				var sub: String = rest[0]
-				var kv := _parse_kv(rest.slice(1), ["fade"] if sub == "stop" else [])
+				var kv := _parse_kv(rest.slice(1), ["fade"] if sub in ["stop", "volume"] else [], diags, file, line_no)
 				match sub:
 					"stop":
-						return Instruction.new(Instruction.Head.MUSIC_STOP, [kv["kv"].get("fade", "1.0")])
-					"pause":
-						return Instruction.new(Instruction.Head.MUSIC_PAUSE)
-					"resume":
-						return Instruction.new(Instruction.Head.MUSIC_RESUME)
-			var kv := _parse_kv(rest, ["from", "loop", "fade"])
+						if not kv["pos"].is_empty():
+							return _fail(diags, file, line_no, "music stop 不接受位置参数")
+						var fade: String = kv["kv"].get("fade", "1.0")
+						if not _check_float(fade, "music stop fade", diags, file, line_no):
+							return null
+						return Instruction.new(Instruction.Head.MUSIC_STOP, [fade])
+					"volume":
+						# 调节在播音轨响度（不重启曲目；同曲守卫下「music 同曲 volume:x」会被吞，调音量必须用它）
+						if kv["pos"].is_empty():
+							return _fail(diags, file, line_no, "music volume 缺少音量值（0~1）")
+						if kv["pos"].size() > 1:
+							return _fail(diags, file, line_no, "music volume 只接受一个位置参数（音量值）")
+						if not _check_volume(kv["pos"][0], "music volume", diags, file, line_no):
+							return null
+						var vol_fade: String = kv["kv"].get("fade", "0.5")
+						if not _check_float(vol_fade, "music volume fade", diags, file, line_no):
+							return null
+						return Instruction.new(Instruction.Head.MUSIC_VOLUME, [kv["pos"][0], vol_fade])
+					"pause", "resume":
+						if not kv["pos"].is_empty():
+							return _fail(diags, file, line_no, "music " + sub + " 不接受位置参数")
+						return Instruction.new(Instruction.Head.MUSIC_PAUSE if sub == "pause" else Instruction.Head.MUSIC_RESUME)
+			var kv := _parse_kv(rest, ["from", "loop", "fade", "volume"], diags, file, line_no)
 			if kv["pos"].is_empty():
 				return _fail(diags, file, line_no, "music 缺少音乐引用名")
+			if kv["pos"].size() > 1:
+				return _fail(diags, file, line_no, "music 只接受一个位置参数（引用名），多余: " + " ".join(kv["pos"].slice(1)))
+			var from_str: String = kv["kv"].get("from", "0")
+			var loop_str: String = kv["kv"].get("loop", "true")
+			var fade_str: String = kv["kv"].get("fade", "1.0")
+			var volume_str: String = kv["kv"].get("volume", "1.0")
+			if not _check_float(from_str, "music from", diags, file, line_no):
+				return null
+			if not _check_bool(loop_str, "music loop", diags, file, line_no):
+				return null
+			if not _check_float(fade_str, "music fade", diags, file, line_no):
+				return null
+			if not _check_volume(volume_str, "music volume", diags, file, line_no):
+				return null
 			return Instruction.new(Instruction.Head.MUSIC_PLAY, [
-				kv["pos"][0],
-				kv["kv"].get("from", "0"),
-				kv["kv"].get("loop", "true"),
-				kv["kv"].get("fade", "1.0"),
+				kv["pos"][0], from_str, loop_str, fade_str, volume_str,
 			])
 		"sfx", "voice":
-			var kv := _parse_kv(rest, ["from"])
+			# stop 子动作：sfx stop [引用]（省略 = 停止全部）；voice stop（单播放器无需引用）
+			if rest.size() > 0 and rest[0] == "stop":
+				var stop_kv := _parse_kv(rest.slice(1), ["fade"], diags, file, line_no)
+				var stop_fade: String = stop_kv["kv"].get("fade", "0.3" if key == "sfx" else "0.1")
+				if not _check_float(stop_fade, key + " stop fade", diags, file, line_no):
+					return null
+				if key == "voice":
+					if not stop_kv["pos"].is_empty():
+						return _fail(diags, file, line_no, "voice stop 不接受引用参数（语音为单播放器）")
+					return Instruction.new(Instruction.Head.VOICE_STOP, [stop_fade])
+				if stop_kv["pos"].size() > 1:
+					return _fail(diags, file, line_no, "sfx stop 至多一个引用参数")
+				return Instruction.new(Instruction.Head.SFX_STOP, [stop_kv["pos"][0] if stop_kv["pos"].size() == 1 else "", stop_fade])
+			var kv := _parse_kv(rest, ["from", "volume", "loop"] if key == "sfx" else ["from", "volume"], diags, file, line_no)
 			if kv["pos"].is_empty():
 				return _fail(diags, file, line_no, key + " 缺少音频引用名")
-			var head := Instruction.Head.SFX_PLAY if key == "sfx" else Instruction.Head.VOICE_PLAY
-			return Instruction.new(head, [kv["pos"][0], kv["kv"].get("from", "0")])
+			if kv["pos"].size() > 1:
+				return _fail(diags, file, line_no, key + " 只接受一个位置参数（引用名），多余: " + " ".join(kv["pos"].slice(1)))
+			var from_str: String = kv["kv"].get("from", "0")
+			var volume_str: String = kv["kv"].get("volume", "1.0")
+			if not _check_float(from_str, key + " from", diags, file, line_no):
+				return null
+			if not _check_volume(volume_str, key + " volume", diags, file, line_no):
+				return null
+			if key == "sfx":
+				var loop_str: String = kv["kv"].get("loop", "false")
+				if not _check_bool(loop_str, "sfx loop", diags, file, line_no):
+					return null
+				return Instruction.new(Instruction.Head.SFX_PLAY, [kv["pos"][0], from_str, volume_str, loop_str])
+			return Instruction.new(Instruction.Head.VOICE_PLAY, [kv["pos"][0], from_str, volume_str])
 		"char":
-			return _parse_char(rest, diags, file, line_no)
+			return _parse_char(rest, diags, file, line_no, char_max)
 		"var":
 			return _parse_var(rest, diags, file, line_no)
 		"jump":
@@ -420,10 +484,12 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 				return _fail(diags, file, line_no, "jump 缺少目标剧本名")
 			if rest[0] == "main_menu":
 				return Instruction.new(Instruction.Head.JUMP_MAIN_MENU)
+			_warn_unknown_script(known_scripts, rest[0], "jump", diags, file, line_no)
 			return Instruction.new(Instruction.Head.JUMP_SCRIPT, [rest[0]])
 		"begin":
 			if rest.is_empty():
 				return _fail(diags, file, line_no, "begin 缺少剧本名")
+			_warn_unknown_script(known_scripts, rest[0], "begin", diags, file, line_no)
 			return Instruction.new(Instruction.Head.SET_BEGIN_SCRIPT, [rest[0]])
 		"wait":
 			if rest.is_empty():
@@ -441,6 +507,14 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 	return null
 
 
+## jump/begin 目标跨文件校验：目标不在编译目录则警告（模组 PCK 可提供目标剧本，故不报错）
+static func _warn_unknown_script(known_scripts: Array[String], target: String, cmd: String, diags: Array[Dictionary], file: String, line_no: int) -> void:
+	if known_scripts.is_empty() or known_scripts.has(target):
+		return
+	_diagnose_static(diags, file, line_no, "warning",
+		"%s 目标剧本不在编译目录中: %s（若由模组提供可忽略）" % [cmd, target])
+
+
 static func _fail(diags: Array[Dictionary], file: String, line_no: int, msg: String) -> Instruction:
 	_diagnose_static(diags, file, line_no, "error", msg)
 	return null
@@ -451,6 +525,22 @@ static func _check_float(value: String, name: String, diags: Array[Dictionary], 
 	if value.is_valid_float():
 		return true
 	_diagnose_static(diags, file, line_no, "error", "%s 参数必须是数字: %s（若这是对话文本，请在行首加 \\ 转义）" % [name, value])
+	return false
+
+
+## 音量参数校验：线性 0~1（与设置界面滑条同口径）
+static func _check_volume(value: String, name: String, diags: Array[Dictionary], file: String, line_no: int) -> bool:
+	if value.is_valid_float() and value.to_float() >= 0.0 and value.to_float() <= 1.0:
+		return true
+	_diagnose_static(diags, file, line_no, "error", "%s 参数必须是 0~1 的数字: %s" % [name, value])
+	return false
+
+
+## 布尔参数校验（与 Instruction._arg_bool 同口径；拼写错误不得静默落为 false）
+static func _check_bool(value: String, name: String, diags: Array[Dictionary], file: String, line_no: int) -> bool:
+	if value.to_lower() in ["true", "false", "1", "0", "on", "off"]:
+		return true
+	_diagnose_static(diags, file, line_no, "error", "%s 参数必须是布尔值（true/false/1/0/on/off）: %s" % [name, value])
 	return false
 
 
@@ -473,12 +563,15 @@ static func _parse_kv(args: Array[String], known_keys: Array, diags: Array[Dicti
 	return {"pos": pos, "kv": kv}
 
 
-static func _parse_char(rest: Array[String], diags: Array[Dictionary], file: String, line_no: int) -> Instruction:
+static func _parse_char(rest: Array[String], diags: Array[Dictionary], file: String, line_no: int, char_max: int = -1) -> Instruction:
 	if rest.size() < 2:
 		return _fail(diags, file, line_no, "char 缺少实例索引或子动作（setup/show/hide/move/texture/wait）")
 	if not rest[0].is_valid_int():
 		return _fail(diags, file, line_no, "char 实例索引必须是整数: " + rest[0])
 	var idx := rest[0]
+	# 编译期越界检查（上限 = config.json 的 character.max；char_max < 0 表示不校验）
+	if char_max >= 0 and (idx.to_int() < 0 or idx.to_int() >= char_max):
+		return _fail(diags, file, line_no, "char 实例索引越界: %s（上限 character.max = %d）" % [idx, char_max])
 	var sub := rest[1]
 	var tail := rest.slice(2)
 
@@ -493,10 +586,13 @@ static func _parse_char(rest: Array[String], diags: Array[Dictionary], file: Str
 		"show", "hide":
 			var kv := _parse_kv(tail, ["time", "wait"], diags, file, line_no)
 			var time_str: String = kv["kv"].get("time", "1.0")
+			var wait_str: String = kv["kv"].get("wait", "false")
 			if not _check_float(time_str, "char " + sub + " time", diags, file, line_no):
 				return null
+			if not _check_bool(wait_str, "char " + sub + " wait", diags, file, line_no):
+				return null
 			var head := Instruction.Head.CHAR_SHOW_FADE if sub == "show" else Instruction.Head.CHAR_HIDE_FADE
-			return Instruction.new(head, [idx, time_str, kv["kv"].get("wait", "false")])
+			return Instruction.new(head, [idx, time_str, wait_str])
 		"move":
 			var kv := _parse_kv(tail, ["time", "wait"], diags, file, line_no)
 			if kv["pos"].is_empty():
@@ -505,9 +601,12 @@ static func _parse_char(rest: Array[String], diags: Array[Dictionary], file: Str
 			if xy.is_empty():
 				return null
 			var move_time: String = kv["kv"].get("time", "1.0")
+			var move_wait: String = kv["kv"].get("wait", "false")
 			if not _check_float(move_time, "char move time", diags, file, line_no):
 				return null
-			return Instruction.new(Instruction.Head.CHAR_MOVE_TO, [idx, xy[0], xy[1], move_time, kv["kv"].get("wait", "false")])
+			if not _check_bool(move_wait, "char move wait", diags, file, line_no):
+				return null
+			return Instruction.new(Instruction.Head.CHAR_MOVE_TO, [idx, xy[0], xy[1], move_time, move_wait])
 		"texture":
 			if tail.is_empty():
 				return _fail(diags, file, line_no, "char texture 缺少立绘引用名")
@@ -538,6 +637,10 @@ static func _parse_var(rest: Array[String], diags: Array[Dictionary], file: Stri
 	var key := rest[0]
 	var op := rest[1]
 
+	# 变量名必须合法，否则永远无法被 {var} 插值读取（渲染器按 is_valid_identifier 判定）
+	if not key.is_valid_identifier():
+		return _fail(diags, file, line_no, "var 变量名必须是合法标识符（字母/下划线开头）: " + key)
+
 	# var x = random 0 100
 	if op == "=" and rest.size() >= 5 and rest[2] == "random":
 		if not _check_float(rest[3], "random min", diags, file, line_no) or not _check_float(rest[4], "random max", diags, file, line_no):
@@ -556,6 +659,9 @@ static func _parse_var(rest: Array[String], diags: Array[Dictionary], file: Stri
 		"/=": head = Instruction.Head.VAR_DIV
 		_:
 			return _fail(diags, file, line_no, "var 未知操作符: " + op)
+	# 右值必须是数字或变量名（否则运行时会按未定义变量静默取 0）
+	if not rest[2].is_valid_float() and not rest[2].is_valid_identifier():
+		return _fail(diags, file, line_no, "var 右值必须是数字或变量名: " + rest[2])
 	return Instruction.new(head, [key, rest[2]])
 
 
@@ -577,9 +683,12 @@ static func _parse_scene(rest: Array[String], diags: Array[Dictionary], file: St
 			var kv := _parse_kv(tail, ["time", "anim", "free"], diags, file, line_no)
 			if kv["pos"].size() < 2:
 				return _fail(diags, file, line_no, "scene unmount 需要 <类型> <名称>")
+			var free_str: String = kv["kv"].get("free", "true")
+			if not _check_bool(free_str, "scene unmount free", diags, file, line_no):
+				return null
 			return Instruction.new(Instruction.Head.SCENE_UNMOUNT, [
 				kv["pos"][0], kv["pos"][1],
-				kv["kv"].get("time", "0"), kv["kv"].get("anim", "fade"), kv["kv"].get("free", "true"),
+				kv["kv"].get("time", "0"), kv["kv"].get("anim", "fade"), free_str,
 			])
 	return _fail(diags, file, line_no, "未知 scene 子动作: " + sub)
 
@@ -589,14 +698,17 @@ static func _parse_trans(rest: Array[String], diags: Array[Dictionary], file: St
 		return _fail(diags, file, line_no, "trans 缺少方向（in/out）")
 	var sub := rest[0]
 	var kv := _parse_kv(rest.slice(1), ["time", "anim", "wait"], diags, file, line_no)
+	var wait_str: String = kv["kv"].get("wait", "true")
+	if not _check_bool(wait_str, "trans wait", diags, file, line_no):
+		return null
 	match sub:
 		"in":
 			return Instruction.new(Instruction.Head.TRANSITION_IN, [
-				kv["kv"].get("time", "1.0"), kv["kv"].get("anim", "fade_in"), kv["kv"].get("wait", "true"),
+				kv["kv"].get("time", "1.0"), kv["kv"].get("anim", "fade_in"), wait_str,
 			])
 		"out":
 			return Instruction.new(Instruction.Head.TRANSITION_OUT, [
-				kv["kv"].get("time", "1.0"), kv["kv"].get("anim", "fade_out"), kv["kv"].get("wait", "true"),
+				kv["kv"].get("time", "1.0"), kv["kv"].get("anim", "fade_out"), wait_str,
 			])
 	return _fail(diags, file, line_no, "未知 trans 方向: " + sub)
 
@@ -681,13 +793,23 @@ static func _parse_condition(cond: String, diags: Array[Dictionary], file: Strin
 		_diagnose_static(diags, file, line_no, "error", "条件表达式无法解析: " + cond + "（应为 <左值> <比较符> <右值>，比较符仅 == != > >= < <=）")
 		return []
 	var op := m.get_string(2)
-	return [m.get_string(1).strip_edges(), op, m.get_string(3).strip_edges()]
+	var left := m.get_string(1).strip_edges()
+	var right := m.get_string(3).strip_edges()
+	# 操作数校验：左值必须是变量名，右值必须是数字或变量名
+	# （字面量左值会被运行时按变量名查表得 0，静默走错分支）
+	if not left.is_valid_identifier():
+		_diagnose_static(diags, file, line_no, "error", "条件左值必须是变量名: " + left)
+		return []
+	if not right.is_valid_float() and not right.is_valid_identifier():
+		_diagnose_static(diags, file, line_no, "error", "条件右值必须是数字或变量名: " + right)
+		return []
+	return [left, op, right]
 
 
 # --- 对话行 ---
 
-static func _emit_dialogue(text: String, seq: Array[GalEventItem], diags: Array[Dictionary], file: String, line_no: int) -> void:
-	_validate_anchors(text, diags, file, line_no)
+static func _emit_dialogue(text: String, seq: Array[GalEventItem], diags: Array[Dictionary], file: String, line_no: int, char_max: int = -1) -> void:
+	_validate_anchors(text, diags, file, line_no, char_max)
 
 	var speaker := ""
 	var content := text
@@ -701,8 +823,8 @@ static func _emit_dialogue(text: String, seq: Array[GalEventItem], diags: Array[
 	seq.append(DialogueItem.new(speaker, content))
 
 
-## 锚点校验（不剥离）：白名单指令名 + 定界符判定，禁止流程指令
-static func _validate_anchors(text: String, diags: Array[Dictionary], file: String, line_no: int) -> void:
+## 锚点校验（不剥离）：白名单指令名 + 定界符判定，禁止流程指令；char 实例索引随 char_max 一并校验
+static func _validate_anchors(text: String, diags: Array[Dictionary], file: String, line_no: int, char_max: int = -1) -> void:
 	var i := 0
 	var length := text.length()
 	while i < length:
@@ -725,9 +847,9 @@ static func _validate_anchors(text: String, diags: Array[Dictionary], file: Stri
 				if not arg.is_valid_float():
 					_diagnose_static(diags, file, line_no, "error", "锚点 pause 需要秒数: [" + inner + "]")
 			else:
-				# 借解析器校验锚点指令合法性（流程指令不在白名单，天然拒绝）
+				# 借解析器校验锚点指令合法性（流程指令不在白名单，天然拒绝；锚点不会出现 jump/begin，目标校验传空跳过）
 				var anchor_diags: Array[Dictionary] = []
-				parse_instruction_line(inner, anchor_diags, file, line_no)
+				parse_instruction_line(inner, anchor_diags, file, line_no, [], char_max)
 				for d in anchor_diags:
 					diags.append(d)
 		i = end + 1
