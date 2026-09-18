@@ -31,7 +31,7 @@ func _enter_tree() -> void:
 
 func _on_start_pressed() -> void:
 	StoryManager.next_script = Global.config["begin_script"]
-	StoryManager.next_story(false)
+	StoryManager.next_story(false, true)  # fresh：全新开局清空选项选择序列
 	return
 
 

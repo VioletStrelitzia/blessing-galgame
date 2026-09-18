@@ -21,7 +21,7 @@ jobs:
       - name: Import resources
         run: godot --headless --path . --import
 
-      - name: Boot to main menu
+      - name: Boot smoke (reach splash, catch boot-time script errors)
         run: godot --headless --path . --quit-after 120
 
       - name: Smoke test

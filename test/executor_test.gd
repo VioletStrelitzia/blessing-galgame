@@ -38,6 +38,7 @@ func _run() -> void:
 	_test_var()
 	await _test_condition()
 	await _test_option()
+	await _test_choice_replay()
 	_test_jump_begin()
 	await _test_wait()
 	await _test_char()
@@ -324,7 +325,8 @@ func _test_condition() -> void:
 	])
 	SM.run_script()
 	_assert(SYNC.has_kind(&"option"), "分支内选项组应挂起等待")
-	SM._on_option_made(0, _visible_option_indices())
+	SM._option_indices = _visible_option_indices()
+	SM._on_option_made(0)
 	_assert(G.vars.get("hit", 0.0) == 1.0 and G.vars.get("after", 0.0) == 1.0,
 		"分支内选项选择后应走完分支体，实际 hit=%s after=%s" % [G.vars.get("hit"), G.vars.get("after")])
 	_assert(SM._execution_stack.is_empty(), "分支内选项结束后执行栈应为空")
@@ -341,7 +343,8 @@ func _test_condition() -> void:
 	])
 	SM.run_script()
 	_assert(SYNC.has_kind(&"option"), "选项组应挂起等待")
-	SM._on_option_made(0, _visible_option_indices())  # 选甲 → 块内 if 真
+	SM._option_indices = _visible_option_indices()
+	SM._on_option_made(0)  # 选甲 → 块内 if 真
 	_assert(G.vars.get("hit", 0.0) == 1.0, "选项块内 if 真应走真分支，实际 %s" % G.vars.get("hit"))
 	_assert(SM._execution_stack.is_empty(), "选项块内 if 结束后执行栈应为空")
 
@@ -394,7 +397,8 @@ func _test_option() -> void:
 	_assert(SYNC.has_kind(&"option"), "选项应挂起等待")
 	var indices := _visible_option_indices()
 	_assert(indices.size() == 2, "条件过滤后应剩 2 个选项，实际 %d" % indices.size())
-	SM._on_option_made(1, indices)  # 选可见第 2 项（丙）
+	SM._option_indices = indices
+	SM._on_option_made(1)  # 选可见第 2 项（丙）
 	_assert(G.vars.get("pick", 0.0) == 3.0, "条件过滤后选第 2 项应路由丙，实际 %s" % G.vars.get("pick"))
 	_assert(G.vars.get("after", 0.0) == 1.0, "分支结束后应执行到 OPTION_END 之后")
 
@@ -422,7 +426,42 @@ func _test_option() -> void:
 	for c in SM.option_ui.vbox.get_children():
 		btn_texts.append(c.text)
 	_assert(btn_texts == ["赎他（现有 50 金币）"], "选项文本应插值，实际 %s" % [btn_texts])
-	SM._on_option_made(0, _visible_option_indices())
+	SM._option_indices = _visible_option_indices()
+	SM._on_option_made(0)
+
+
+## 选项选择序列与确定性重放（存档 v3）：选择入序列；重放自动选定记录分支、不弹 UI 不挂起
+func _test_choice_replay() -> void:
+	G.vars.clear()
+	# 选择序列按周目累积，本用例自成一周目：清空序列与游标
+	SM._choice_log.clear()
+	SM._choice_cursor = 0
+	_load_text([
+		"* 甲",
+		"    var pick = 1",
+		"* 乙",
+		"    var pick = 2",
+		"旁白: 结尾",
+	])
+	SM.run_script()
+	_assert(SYNC.has_kind(&"option"), "选项组应挂起等待")
+	SM._option_indices = _visible_option_indices()
+	SM._on_option_made(1)  # 选乙
+	_assert(G.vars.get("pick", 0.0) == 2.0, "首次游玩应走乙分支")
+	_assert(SM._choice_log.size() == 1, "选择应记入序列，实际 %s" % [SM._choice_log])
+
+	# 模拟读档重放：同剧本从头 SKIP 重放，选项组自动选定记录分支（不弹 UI、不挂起）
+	G.vars.clear()
+	SM.idx = 0
+	SM._execution_stack.clear()
+	SM._replay_end = 6  # 剧本尾（seq 共 6 项；终点判定在对话停止点）
+	SYNC.mode = SYNC.Mode.SKIP
+	SM.run_script()
+	await create_timer(0.5).timeout
+	_assert(G.vars.get("pick", 0.0) == 2.0, "重放应自动走记录的乙分支，实际 %s" % G.vars.get("pick"))
+	_assert(not SYNC.has_kind(&"option"), "重放中选项组不得挂起弹 UI")
+	_assert(SM._replay_end == -1, "重放到点应结束（_replay_end 复位）")
+	SYNC.mode = SYNC.Mode.INTERACT
 
 
 func _test_jump_begin() -> void:

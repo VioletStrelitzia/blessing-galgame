@@ -536,6 +536,8 @@ static func parse_instruction_line(content: String, diags: Array[Dictionary] = [
 				return _fail(diags, file, line_no, "wait 缺少秒数")
 			if not _check_float(rest[0], "wait", diags, file, line_no):
 				return null
+			if rest[0].to_float() < 0:
+				return _fail(diags, file, line_no, "wait 秒数必须 >= 0（与 char wait 同口径）")
 			return Instruction.from_strings(Instruction.Head.WAIT, [rest[0]])
 		"scene":
 			return _parse_scene(rest, diags, file, line_no)
@@ -616,6 +618,18 @@ static func _parse_kv(args: Array[String], known_keys: Array, diags: Array[Dicti
 
 
 static func _parse_char(rest: Array[String], diags: Array[Dictionary], file: String, line_no: int, char_max: int = -1, known_refs: Dictionary = {}) -> Instruction:
+	# 坐标宽容：「0.3, 0.95」（逗号后有空格）会被分词切成两个记号，此处预先合并
+	var merged: Array[String] = []
+	var i := 0
+	while i < rest.size():
+		if rest[i].ends_with(",") and not rest[i].contains(":") and i + 1 < rest.size():
+			merged.append(rest[i] + rest[i + 1])
+			i += 2
+		else:
+			merged.append(rest[i])
+			i += 1
+	rest = merged
+
 	if rest.size() < 2:
 		return _fail(diags, file, line_no, "char 缺少实例索引或子动作（setup/show/hide/move/texture/wait）")
 	if not rest[0].is_valid_int():
@@ -732,6 +746,10 @@ static func _parse_scene(rest: Array[String], diags: Array[Dictionary], file: St
 			var kv := _parse_kv(tail, ["time", "anim"], diags, file, line_no)
 			if kv["pos"].size() < 3:
 				return _fail(diags, file, line_no, "scene mount 需要 <类型> <名称> <路径>")
+			# 场景路径存在性校验（仅警告——模组 PCK 可提供登记表之外的场景）
+			if not ResourceLoader.exists(kv["pos"][2]):
+				_diagnose_static(diags, file, line_no, "warning",
+					"scene mount 路径不存在: %s（若由模组提供可忽略）" % kv["pos"][2])
 			return Instruction.from_strings(Instruction.Head.SCENE_MOUNT, [
 				kv["pos"][0], kv["pos"][1], kv["pos"][2],
 				kv["kv"].get("time", "0"), kv["kv"].get("anim", "fade"),

@@ -33,8 +33,11 @@ var _switching := false  ## next_story 转场进行中，屏蔽输入与推进
 var _suspended := false  ## 停在 Synchronizer 阻塞挂起上（holds_cleared 续跑）
 var _turn_stopped := false  ## 本回合已停止（对白展示/结构停止）；run_script 判停用
 var _option_hold := Synchronizer.INVALID  ## 选项挂起凭证（INVALID = 无选项等待）
+var _option_indices: Array[int] = []  ## 当前选项组可见分支起点（供 _on_option_made 路由）
 var _replay_end := -1  ## 读档 SKIP 重放的终点索引，-1 表示不在重放
 var _replay_vars_snapshot: Dictionary = {}  ## 重放结束后兜底覆盖的 vars 快照
+var _choice_log: Array[int] = []  ## 选项选择序列（各组选定分支的 body_start，按经过顺序；随存档入档）
+var _choice_cursor := 0  ## 重放中已消费的选择条数
 
 # --- 指令处理函数注册表 ---
 var _instruction_handlers: Dictionary = {}
@@ -232,8 +235,8 @@ func _step(item: GalEventItem) -> void:
 	match iterate_mode:
 		IterateMode.DEFAULT:
 			if item is DialogueItem:
+				idx += 1  # 先推进索引：SKIP 下 _show_dialogue 内 skip_typing 会同步重入 dialogue_finished，idx 须已是「下一未执行项」口径（重放终点判定依赖）
 				_show_dialogue(item)
-				idx += 1
 				iterate_mode = IterateMode.POST_COMMAND
 				_turn_stopped = true  # 对白停止点：等打字完成
 			else:
@@ -274,6 +277,8 @@ func _on_dialogue_finished() -> void:
 		if not _replay_vars_snapshot.is_empty():
 			Global.vars = _replay_vars_snapshot.duplicate()
 			_replay_vars_snapshot = {}
+		# 选项序列截掉存档点之后的陈旧未来（玩家此后可能走不同分支，新选择在尾部追加）
+		_choice_log.resize(_choice_cursor)
 		Synchronizer.mode = Synchronizer.Mode.INTERACT
 		return
 
@@ -305,12 +310,16 @@ func execute(ins: Instruction) -> void:
 		handler.call(ins)
 
 
-func next_story(free: bool = false) -> void:
+func next_story(free: bool = false, fresh := false) -> void:
 	_switching = true
 	_waiting = false
 	_suspended = false
 	_option_hold = Synchronizer.INVALID
 	Synchronizer.reset()  # 清全部挂起与预约计时 + 回 INTERACT
+	if fresh:
+		# 全新开局：选项选择序列清零（jump 换幕保持连续，读档由 load_game 覆写为存档记录）
+		_choice_log.clear()
+		_choice_cursor = 0
 
 	# 新局新种子（load_game 路径会在转场后复位为存档种子）
 	Global.rng.randomize()
@@ -703,10 +712,22 @@ func _option_begin(ins: Instruction) -> void:
 			break
 		cursor = cur_script.seq[next_idx] as Instruction
 
-	# 空选项组防护（条件过滤后无存活选项）：跳过整组，不弹 UI
+	# 空选项组防护（条件过滤后无存活选项）：跳过整组，不弹 UI（不产生选择记录——玩家本就未经此组）
 	if options_text.is_empty():
 		GalLogger.warn(LOG_TAG, "选项组条件过滤后为空，跳过整组")
 		idx = ins.params[5] as int
+		return
+
+	# 重放中：按存档记录自动选定（不弹 UI、不产生挂起——确定性重放的核心要求）
+	if _replay_end >= 0:
+		var target := -1
+		if _choice_cursor < _choice_log.size():
+			target = _choice_log[_choice_cursor]
+		_choice_cursor += 1
+		if not options_indices.has(target):
+			GalLogger.warn(LOG_TAG, "重放选项记录不可用（内容漂移或旧档），退化到首个可见项")
+			target = options_indices[0]
+		idx = target
 		return
 
 	# 对话框淡出完成后再弹出选项（信号串联，不挂起协程）
@@ -720,8 +741,12 @@ func _option_begin(ins: Instruction) -> void:
 
 	# 选项挂起（SKIP 中也真实挂起——skip_immune）；玩家选择/取消时释放
 	_option_hold = Synchronizer.acquire(&"option")
-	option_ui.option_made.connect(_on_option_made.bind(options_indices), CONNECT_ONE_SHOT)
-	option_ui.canceled.connect(_on_option_canceled, CONNECT_ONE_SHOT)
+	_option_indices = options_indices
+	# 常驻连接 + _option_hold 守卫幂等（一次性连接在取消路径下会积存残留，反复连接报错）
+	if not option_ui.option_made.is_connected(_on_option_made):
+		option_ui.option_made.connect(_on_option_made)
+	if not option_ui.canceled.is_connected(_on_option_canceled):
+		option_ui.canceled.connect(_on_option_canceled)
 
 
 ## 选项条件：tokens 为空 = 无条件（恒真）
@@ -730,13 +755,15 @@ func _option_condition_passed(item: Instruction) -> bool:
 	return tokens.is_empty() or _eval_condition(tokens)
 
 
-func _on_option_made(option_index: int, options_indices: Array[int]) -> void:
+func _on_option_made(option_index: int) -> void:
 	if _option_hold == Synchronizer.INVALID:
 		return
 	var hold := _option_hold
 	_option_hold = Synchronizer.INVALID
 	# 跳转到选中的分支开始处
-	idx = options_indices[option_index]
+	idx = _option_indices[option_index]
+	# 记录选择（确定性重放：读档后经同一选项组时按记录自动选定）
+	_choice_log.append(_option_indices[option_index])
 	Synchronizer.release(hold)  # holds_cleared 驱动续跑 run_script
 
 
@@ -929,11 +956,13 @@ func load_game(sg: SavedGame):
 	next_script = sg.script_name
 	await next_story(false)  # 注意：next_story 内部会重置选项状态并 randomize 新种子，执行顺序很重要
 
-	# 重放准备：复位随机种子（使 var random 序列重现）、vars 从空累积
+	# 重放准备：复位随机种子（使 var random 序列重现）、vars 从空累积、选项序列换存档记录
 	Global.rng.seed = sg.rng_seed
 	Global.rng_seed = sg.rng_seed
 	Global.vars.clear()
 	_replay_vars_snapshot = sg.vars.duplicate()
+	_choice_log = sg.choice_log.duplicate()
+	_choice_cursor = 0
 
 	# 以 SKIP 模式重放到存档点，重建背景/立绘/音乐等现场
 	_replay_end = sg.idx

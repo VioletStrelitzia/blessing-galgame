@@ -290,6 +290,32 @@ func _init() -> void:
 	ok = _assert(d1.character == "引路人" and d1.dialogue == "台词[sfx rain volume:0.5]尾",
 		"说话者行应在首个冒号分隔，实际 speaker=%s content=%s" % [d1.character, d1.dialogue]) and ok
 
+	# 36. wait 负秒编译期报错（与 char wait 同口径）；坐标逗号后空格宽容解析
+	ok = _expect_error(["wait -1"], ">= 0") and ok
+	var tol_diags: Array[Dictionary] = []
+	var tol_seq := DialogueImporter.parse_script(PackedStringArray([
+		"char 0 setup demo_char_a 0.3, 0.95",
+		"char 0 move 0.7, 0.95 time:0.5",
+	]), "test", tol_diags)
+	ok = _assert(tol_diags.is_empty(), "坐标逗号后空格应宽容解析: %s" % [tol_diags]) and ok
+	if tol_seq.seq.size() == 2:
+		var c0 := tol_seq.seq[0] as Instruction
+		ok = _assert(c0.head == Instruction.Head.CHAR_SETUP
+			and c0.params[2] == 0.3 and c0.params[3] == 0.95,
+			"空格坐标应正确合并，实际 %s" % [c0.params]) and ok
+
+	# 37. scene mount 路径存在性校验（仅警告）
+	var sc_diags: Array[Dictionary] = []
+	DialogueImporter.parse_script(PackedStringArray([
+		"scene mount ui 测试 res://Scenes/MessageUI/message_ui.tscn",
+		"scene mount ui 幽灵 res://Scenes/ghost.tscn",
+	]), "test", sc_diags)
+	var sc_warns := 0
+	for d in sc_diags:
+		if d["level"] == "warning" and (d["msg"] as String).contains("路径不存在"):
+			sc_warns += 1
+	ok = _assert(sc_warns == 1, "scene mount 不存在路径应警告恰好一次，实际 %d: %s" % [sc_warns, sc_diags]) and ok
+
 	print("DIAGNOSTICS_TEST_DONE ok=", ok)
 	quit(0 if ok else 1)
 

@@ -208,6 +208,7 @@ func save_game(slot_index: int = -1, title: String = "") -> bool:
 	saved_game.script_name = StoryManager.cur_script_name
 	saved_game.idx = StoryManager.idx
 	saved_game.rng_seed = Global.rng_seed
+	saved_game.choice_log = StoryManager._choice_log.duplicate()
 	saved_game.timestamp = _format_timestamp(timestamp)
 	if title.is_empty():
 		saved_game.title = StoryManager.cur_script_name
