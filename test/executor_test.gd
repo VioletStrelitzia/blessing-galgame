@@ -96,15 +96,15 @@ func _visible_option_indices() -> Array[int]:
 
 
 func _ins(head: Instruction.Head, args: Array[String] = []) -> Instruction:
-	return Instruction.new(head, args)
+	return Instruction.from_strings(head, args)
 
 
 func _post(head: Instruction.Head, args: Array[String] = []) -> PostInstruction:
-	return PostInstruction.new(head, args)
+	return PostInstruction.from_strings(head, args)
 
 
 func _prev(head: Instruction.Head, args: Array[String] = []) -> PrevInstruction:
-	return PrevInstruction.new(head, args)
+	return PrevInstruction.from_strings(head, args)
 
 
 func _dlg(text: String = "测试") -> DialogueItem:
