@@ -625,6 +625,26 @@ func _test_audio() -> void:
 	await process_frame
 	await process_frame
 
+	# DSL 通路真实双 BGM 交叉淡变（demo_bgm → demo_bgm_2，快出慢进）
+	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm", "0", "true", "0", "0", "1.0"])])
+	SM.run_script()
+	await process_frame
+	await process_frame
+	var s2 = root.get_node("ResourceManager").load("audio", "demo_bgm_2")
+	_load_seq([_ins(Instruction.Head.MUSIC_PLAY, ["demo_bgm_2", "0", "true", "0.1", "1.0", "1.0"])])
+	SM.run_script()
+	await create_timer(0.3).timeout
+	cur = music_mgr.players[music_mgr.cur_player_index]
+	_assert(cur.stream == s2 and absf(cur.volume_db) < 0.01,
+		"新轨 demo_bgm_2 fade_in:0.1 应已到位 0dB，实际 %s" % cur.volume_db)
+	var old_alive := false
+	for p in music_mgr.players:
+		if p != cur and p.playing and p.stream == s_cached:
+			old_alive = true
+	_assert(old_alive, "旧轨 demo_bgm 应在 fade_out:1.0 淡出中（双轨同时在播 = 真交叉淡变）")
+	AM.stop_music(0.0)
+	await create_timer(0.9).timeout  # 等旧轨淡出收尾，避免残留 tween 污染后续用例
+
 	# sfx volume（v2.2）：按流身份调在播音效响度；淡出停止中的轨不被匹配
 	_load_seq([_ins(Instruction.Head.SFX_PLAY, ["demo_bgm", "0", "1.0", "true"])])
 	SM.run_script()
