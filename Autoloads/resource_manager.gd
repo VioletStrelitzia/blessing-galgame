@@ -52,6 +52,11 @@ func _exit_tree() -> void:
 	_path_dict.clear()
 
 
+## 资源登记表访问器（供 CLI/编辑器注入 known_refs，避免外部触碰下划线字段）
+func get_known_refs() -> Dictionary:
+	return _path_dict
+
+
 func load(res_type: String, res_key: String) -> Resource:
 	GalLogger.debug(LOG_TAG, "尝试加载资源: " + res_type + "/" + res_key)
 	

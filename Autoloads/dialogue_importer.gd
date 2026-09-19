@@ -15,10 +15,6 @@ var char_max: int = -1
 ## 资源登记表（index.json 各域 key 集合），由 ResourceManager 注入；空 = 不校验引用
 ## 形态：{"audio": {key: path, ...}, "texture": {...}, ...}
 var known_refs: Dictionary = {}
-var hash_file_path: String
-
-var saved_hash: Dictionary = {}
-var need_update: bool = false
 
 const CHUNK_SIZE = 1024
 
@@ -38,79 +34,45 @@ const INDENT_UNIT := 4
 
 signal res_update_load_finished
 
-# 诊断收集：[{file, line, level, msg}]
-var _diagnostics: Array[Dictionary] = []
-
 
 func _ready() -> void:
-	hash_file_path = save_dir.path_join(".hash")
-	if DirAccess.dir_exists_absolute(save_dir):
-		Utils.open_dir(save_dir)
-		if FileAccess.file_exists(hash_file_path):
-			saved_hash = Utils.load_json(hash_file_path)
-	# 编译器版本盐：不匹配则全量重编（枚举按整数序列化，旧产物会错位）
-	if saved_hash.get("_compiler", "") != COMPILER_VERSION:
-		GalLogger.info(LOG_TAG, "编译器版本变更（%s → %s），全量重编" % [saved_hash.get("_compiler", "无"), COMPILER_VERSION])
-		saved_hash.clear()
-		saved_hash["_compiler"] = COMPILER_VERSION
-		need_update = true
-	import_dialogues(read_dir)
-	if need_update:
-		Utils.save_json(hash_file_path, saved_hash)
-		GalLogger.info(LOG_TAG, "导入完成，已更新哈希值和资源列表")
-	_flush_diagnostics()
+	var report := compile_all(read_dir, save_dir, char_max, known_refs)
+	_flush_diagnostics(report["diags"])
 	res_update_load_finished.emit()
 
 
-func import_dialogues(path: String):
-	# 目录不存在（如导出包排除了 scripts/）时安静跳过，直接运行既有产物
-	if not DirAccess.dir_exists_absolute(path):
-		GalLogger.info(LOG_TAG, "剧本目录不存在，跳过导入: " + path)
-		return
-	var file_list := Utils.get_file_list(path, true, false)
-	# 跨文件校验上下文：jump/begin 目标名集合（模组 PCK 可提供额外剧本，缺失仅警告不报错）；
-	# char 实例上限与资源登记表由 ResourceManager 注入（config.json 的 character.max / index.json）
+## 剧本命名规则：相对 read_dir 的路径去扩展名、目录分隔符换 _
+static func script_name_of(file_path: String, read_dir: String) -> String:
+	var rel := file_path
+	if rel.begins_with(read_dir):
+		rel = rel.substr(read_dir.length()).trim_prefix("/").trim_prefix("\\")
+	return rel.get_basename().replace("/", "_").replace("\\", "_")
+
+
+## 扫描源目录生成 known_scripts：jump/begin 目标名集合（模组 PCK 可提供额外剧本，缺失仅警告不报错）
+static func scan_script_names(read_dir: String) -> Array[String]:
 	var known_scripts: Array[String] = []
-	for file_path in file_list:
-		known_scripts.append(file_path.get_basename().replace("/", "_").replace("\\", "_"))
-	for file_path in file_list:
-		var script_name := file_path.get_basename().replace("/", "_").replace("\\", "_")
-		if script_name == "main_menu":
-			_diagnose(path.path_join(file_path), 0, "error", "剧本名 main_menu 与 jump main_menu 特殊目标冲突，请改名")
-			continue
-		import_dialogue(
-			path.path_join(file_path),
-			save_dir.path_join(script_name + ".tres"),
-			known_scripts,
-			char_max,
-			known_refs
-		)
+	if not DirAccess.dir_exists_absolute(read_dir):
+		return known_scripts
+	for file_path in Utils.get_file_list(read_dir, true, false):
+		known_scripts.append(script_name_of(file_path, read_dir))
+	return known_scripts
 
 
-func import_dialogue(text_path: String, output_path: String, known_scripts: Array[String] = [], char_max: int = -1, known_refs: Dictionary = {}) -> void:
-	var current_hash = calculate_text_hash(text_path)
-	if current_hash.is_empty():
-		GalLogger.error(LOG_TAG, "无法计算文本哈希: " + text_path)
-		return
-
-	if saved_hash.has(text_path) and saved_hash[text_path] == current_hash and FileAccess.file_exists(output_path):
-		GalLogger.debug(LOG_TAG, "资源无变化: " + text_path)
-		return
-
-	saved_hash[text_path] = current_hash
-	need_update = true
-	GalLogger.debug(LOG_TAG, "导入资源: " + text_path)
-
-	var file = Utils.open_file(text_path, FileAccess.READ)
-	var text = file.get_as_text()
+## 单文件编译主体：读文件 → parse_script → 无 error 则写 compiler 标记并落盘。
+## 增量判断与哈希更新由 compile_all 负责。返回该文件的诊断数组。
+static func compile_file(text_path: String, output_path: String, known_scripts: Array[String], char_max: int, known_refs: Dictionary) -> Array[Dictionary]:
+	var file := Utils.open_file(text_path, FileAccess.READ)
+	if not file:
+		return [{"file": text_path, "line": 0, "level": "error", "msg": "无法打开文件"}]
+	var text := file.get_as_text()
 	file.close()
 
 	var diags: Array[Dictionary] = []
 	var dialogue_group := parse_script(text.split("\n"), text_path, diags, known_scripts, char_max, known_refs)
-	_diagnostics.append_array(diags)
 	if _has_error(diags):
 		GalLogger.error(LOG_TAG, "存在编译错误，跳过产物保存: " + text_path)
-		return
+		return diags
 
 	dialogue_group.compiler = COMPILER_VERSION
 
@@ -121,9 +83,81 @@ func import_dialogue(text_path: String, output_path: String, known_scripts: Arra
 		GalLogger.error(LOG_TAG, "保存失败: " + output_path)
 	else:
 		GalLogger.debug(LOG_TAG, "生成成功: " + output_path)
+	return diags
 
 
-func calculate_text_hash(file_path: String) -> String:
+## 全量编译编排：.hash 加载/版本盐比较/逐文件增量判断与编译/写回 .hash。
+## 返回 {"ok": bool, "diags": Array[Dictionary], "files": [{file, script, output, status}]}，
+## status ∈ "compiled" | "skipped"（哈希未变）| "error"（诊断含 error 或 IO 失败，产物未保存）。
+## char_max < 0 不校验 char 实例索引；known_refs 空 = 不校验资源引用。
+static func compile_all(read_dir: String, save_dir: String, char_max: int, known_refs: Dictionary) -> Dictionary:
+	var report: Dictionary = {"ok": true, "diags": [] as Array[Dictionary], "files": []}
+	var diags: Array[Dictionary] = report["diags"]
+	var files: Array = report["files"]
+
+	var hash_file_path := save_dir.path_join(".hash")
+	var saved_hash: Dictionary = {}
+	var need_update := false
+	if DirAccess.dir_exists_absolute(save_dir):
+		Utils.open_dir(save_dir)
+		if FileAccess.file_exists(hash_file_path):
+			saved_hash = Utils.load_json(hash_file_path)
+	# 编译器版本盐：不匹配则全量重编（枚举按整数序列化，旧产物会错位）
+	if saved_hash.get("_compiler", "") != COMPILER_VERSION:
+		GalLogger.info(LOG_TAG, "编译器版本变更（%s → %s），全量重编" % [saved_hash.get("_compiler", "无"), COMPILER_VERSION])
+		saved_hash.clear()
+		saved_hash["_compiler"] = COMPILER_VERSION
+		need_update = true
+
+	# 目录不存在（如导出包排除了 scripts/）时安静跳过，直接运行既有产物
+	if not DirAccess.dir_exists_absolute(read_dir):
+		GalLogger.info(LOG_TAG, "剧本目录不存在，跳过导入: " + read_dir)
+	else:
+		var file_list := Utils.get_file_list(read_dir, true, false)
+		# 跨文件校验上下文：jump/begin 目标名集合；
+		# char 实例上限与资源登记表由调用方注入（config.json 的 character.max / index.json）
+		var known_scripts := scan_script_names(read_dir)
+		for file_path in file_list:
+			var script_name := script_name_of(file_path, read_dir)
+			var text_path := read_dir.path_join(file_path)
+			var output_path := save_dir.path_join(script_name + ".tres")
+			var entry := {"file": text_path, "script": script_name, "output": output_path, "status": "compiled"}
+			files.append(entry)
+			if script_name == "main_menu":
+				_diagnose_static(diags, text_path, 0, "error", "剧本名 main_menu 与 jump main_menu 特殊目标冲突，请改名")
+				entry["status"] = "error"
+				report["ok"] = false
+				continue
+
+			var current_hash := calculate_text_hash(text_path)
+			if current_hash.is_empty():
+				GalLogger.error(LOG_TAG, "无法计算文本哈希: " + text_path)
+				entry["status"] = "error"
+				report["ok"] = false
+				continue
+
+			if saved_hash.has(text_path) and saved_hash[text_path] == current_hash and FileAccess.file_exists(output_path):
+				GalLogger.debug(LOG_TAG, "资源无变化: " + text_path)
+				entry["status"] = "skipped"
+				continue
+
+			saved_hash[text_path] = current_hash
+			need_update = true
+			GalLogger.debug(LOG_TAG, "导入资源: " + text_path)
+
+			var file_diags := compile_file(text_path, output_path, known_scripts, char_max, known_refs)
+			diags.append_array(file_diags)
+			if _has_error(file_diags):
+				entry["status"] = "error"
+				report["ok"] = false
+
+	if need_update:
+		Utils.save_json(hash_file_path, saved_hash)
+		GalLogger.info(LOG_TAG, "导入完成，已更新哈希值和资源列表")
+	return report
+
+
+static func calculate_text_hash(file_path: String) -> String:
 	var ctx = HashingContext.new()
 	if ctx.start(HashingContext.HASH_SHA256) != OK: return ""
 	var file = Utils.open_file(file_path)
@@ -141,24 +175,19 @@ static func _has_error(diags: Array[Dictionary]) -> bool:
 	return false
 
 
-func _flush_diagnostics() -> void:
-	for d in _diagnostics:
+func _flush_diagnostics(diags: Array[Dictionary]) -> void:
+	for d in diags:
 		var msg := "%s:%d %s" % [d["file"], d["line"], d["msg"]]
 		if d["level"] == "error":
 			GalLogger.error(LOG_TAG, msg)
 		else:
 			GalLogger.warn(LOG_TAG, msg)
-	if not _diagnostics.is_empty():
-		GalLogger.info(LOG_TAG, "剧本诊断：共 %d 条" % _diagnostics.size())
-	_diagnostics.clear()
+	if not diags.is_empty():
+		GalLogger.info(LOG_TAG, "剧本诊断：共 %d 条" % diags.size())
 
 
 static func _diagnose_static(diags: Array[Dictionary], file: String, line: int, level: String, msg: String) -> void:
 	diags.append({"file": file, "line": line, "level": level, "msg": msg})
-
-
-func _diagnose(file: String, line: int, level: String, msg: String) -> void:
-	_diagnose_static(_diagnostics, file, line, level, msg)
 
 
 # ============================================================
