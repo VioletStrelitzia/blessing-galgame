@@ -1,5 +1,6 @@
 import {
   Controls,
+  MarkerType,
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
@@ -8,18 +9,21 @@ import {
   type NodeChange,
   type NodeTypes,
 } from "@xyflow/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import { removeNodeById } from "../state/edit";
 import { useEditor } from "../state/store";
+import { collapseRuns, groupIdOf, isGroupNode } from "./collapse";
 import { SeqEdge } from "./edges/SeqEdge";
+import { kindColor } from "./kindColor";
 import { CommentNode } from "./nodes/CommentNode";
 import { CondNode } from "./nodes/CondNode";
 import { DialogueNode } from "./nodes/DialogueNode";
 import { InstNode } from "./nodes/InstNode";
 import { JumpNode } from "./nodes/JumpNode";
 import { OptionGroupNode } from "./nodes/OptionGroupNode";
+import { RunGroupNode } from "./nodes/RunGroupNode";
 import { EndNode, StartNode } from "./nodes/StartEndNode";
-import { toFlow, type FlowNode } from "./toFlow";
+import { toFlow, type FlowData, type FlowNode } from "./toFlow";
 
 const nodeTypes: NodeTypes = {
   start: StartNode,
@@ -30,20 +34,20 @@ const nodeTypes: NodeTypes = {
   cond: CondNode,
   jump: JumpNode,
   comment: CommentNode,
+  group: RunGroupNode,
 };
 
 const edgeTypes: EdgeTypes = { seq: SeqEdge };
 
-const MINIMAP_COLORS: Record<string, string> = {
-  start: "#e4e4e7",
-  end: "#e4e4e7",
-  dialogue: "#22d3ee",
-  inst: "#818cf8",
-  option_group: "#fbbf24",
-  cond: "#fbbf24",
-  jump: "#f87171",
-  comment: "#71717a",
-};
+const defaultEdgeOptions = {
+  type: "smoothstep",
+  markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: "#64748B" },
+} as const;
+
+/** 节点是否已完成尺寸测量（fitView/setCenter 的正确性前提） */
+function measured(n: { measured?: { width?: number; height?: number } }): boolean {
+  return n.measured?.width !== undefined && n.measured?.height !== undefined;
+}
 
 function Canvas() {
   const graph = useEditor((s) => s.graph);
@@ -54,72 +58,72 @@ function Canvas() {
   const select = useEditor((s) => s.select);
   const setPosition = useEditor((s) => s.setPosition);
   const focusReq = useEditor((s) => s.focusReq);
-  const { setCenter, getNode, fitView, getZoom } = useReactFlow();
+  const expandedGroups = useEditor((s) => s.expandedGroups);
+  const expandGroup = useEditor((s) => s.expandGroup);
+  const { setCenter, getNode, getNodes, fitView } = useReactFlow();
 
+  // 领域图 → 聚合视图 → toFlow；带诊断角标/当前选中的节点强制可见
   const { nodes, edges } = useMemo(() => {
     if (!graph) return { nodes: [], edges: [] };
-    return toFlow(graph, positions, nodeDiags);
-  }, [graph, positions, nodeDiags]);
+    const forced = new Set([...Object.keys(nodeDiags), ...(selected ? [selected] : [])]);
+    const view = collapseRuns(graph, expandedGroups, forced);
+    const flow = toFlow(view, positions, nodeDiags, graph.edges);
+    // 展开中链的首节点给「收起」按钮
+    const expandedHeads = new Set([...expandedGroups].map((id) => id.slice(groupIdOf("").length)));
+    return {
+      nodes: flow.nodes.map((n) =>
+        expandedHeads.has(n.id) ? { ...n, data: { ...n.data, collapseId: groupIdOf(n.id) } } : n,
+      ),
+      edges: flow.edges,
+    };
+  }, [graph, positions, nodeDiags, selected, expandedGroups]);
 
   const rendered = useMemo(
     () => nodes.map((n) => ({ ...n, selected: n.id === selected })),
     [nodes, selected],
   );
 
-  // 剧本载入/切换后可靠 fitView：图数据可能晚于 current 变更到达（live 模式需等编译+dump），
-  // 且 RF 内部 measured 就绪没有可靠的 effect 触发源，故以 DOM 实际渲染为准 rAF 轮询，每个剧本只 fit 一次。
-  const fittedFor = useRef<string | null>(null);
+  // 剧本载入/切换后可靠 fitView：rAF 轮询等全部节点测量完成（含 dagre 补位后的新位置）
   useEffect(() => {
-    fittedFor.current = null;
-  }, [current]);
-  useEffect(() => {
-    if (current === null || fittedFor.current === current || nodes.length === 0) return;
+    if (current === null) return;
     let alive = true;
     const tryFit = (attempt: number) => {
-      if (!alive || fittedFor.current === current) return;
-      const dom = document.querySelectorAll(".react-flow__node");
-      const ready =
-        dom.length >= nodes.length &&
-        [...dom].every((el) => el.getBoundingClientRect().width > 0);
-      if (ready) {
-        fittedFor.current = current;
-        void fitView({ padding: 0.2, minZoom: 0.1, duration: 250 });
+      if (!alive) return;
+      const ns = getNodes();
+      if (ns.length > 0 && ns.every(measured)) {
+        void fitView({ padding: 0.2, duration: 250 });
         return;
       }
-      if (attempt < 1200) requestAnimationFrame(() => tryFit(attempt + 1));
+      if (attempt < 90) requestAnimationFrame(() => tryFit(attempt + 1));
     };
     const raf = requestAnimationFrame(() => tryFit(0));
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
     };
-  }, [current, nodes, fitView]);
+  }, [current, fitView, getNodes]);
 
-  // 诊断定位 / select_node / 新节点滚入视野：同样以 DOM 渲染就绪为准（measured 无可靠触发源）
+  // 诊断定位 / select_node / 新节点滚入视野：rAF 重试等目标节点渲染并测量
   useEffect(() => {
     if (!focusReq) return;
     let alive = true;
     const tryCenter = (attempt: number) => {
       if (!alive) return;
       const n = getNode(focusReq.id);
-      const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(focusReq.id)}"]`);
-      if (n && el && el.getBoundingClientRect().width > 0) {
-        const zoom = getZoom() || 1;
-        const rect = el.getBoundingClientRect();
-        void setCenter(n.position.x + rect.width / zoom / 2, n.position.y + rect.height / zoom / 2, {
-          zoom: 1.1,
-          duration: 300,
-        });
+      if (n && measured(n)) {
+        const w = n.measured?.width ?? 240;
+        const h = n.measured?.height ?? 100;
+        void setCenter(n.position.x + w / 2, n.position.y + h / 2, { zoom: 1.1, duration: 300 });
         return;
       }
-      if (attempt < 600) requestAnimationFrame(() => tryCenter(attempt + 1));
+      if (attempt < 90) requestAnimationFrame(() => tryCenter(attempt + 1));
     };
     const raf = requestAnimationFrame(() => tryCenter(0));
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
     };
-  }, [focusReq, getNode, setCenter, getZoom]);
+  }, [focusReq, getNode, setCenter]);
 
   // 受控模式：change 事件回流到领域 store（位置独立存放；remove 走 removeNode）
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
@@ -138,7 +142,7 @@ function Canvas() {
 
   if (!graph) {
     return (
-      <div className="flow-dots flex h-full items-center justify-center text-sm text-zinc-600">
+      <div className="flow-dots flex h-full items-center justify-center text-sm text-dim">
         加载中…
       </div>
     );
@@ -152,9 +156,13 @@ function Canvas() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
-        fitViewOptions={{ padding: 0.2, minZoom: 0.1 }}
-        minZoom={0.1}
+        onNodeClick={(_, node) => {
+          if (node.type === "group") expandGroup(node.id);
+        }}
+        defaultEdgeOptions={defaultEdgeOptions}
+        fitViewOptions={{ padding: 0.2 }}
         colorMode="dark"
+        zoomOnDoubleClick={false}
         nodesConnectable={false}
         edgesFocusable={false}
         deleteKeyCode={["Delete", "Backspace"]}
@@ -164,9 +172,13 @@ function Canvas() {
         <MiniMap
           pannable
           zoomable
-          nodeColor={(n) => MINIMAP_COLORS[n.type ?? ""] ?? "#a1a1aa"}
+          nodeColor={(n) => {
+            const d = n.data as FlowData | undefined;
+            const key = d && isGroupNode(d.node) ? d.node.groupKind : (n.type ?? "");
+            return kindColor(key);
+          }}
           nodeStrokeColor={() => "transparent"}
-          maskColor="rgba(9, 9, 11, 0.75)"
+          maskColor="rgba(2, 6, 23, 0.75)"
         />
       </ReactFlow>
     </div>

@@ -1,4 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { TailText } from "../../components/TailText";
 import type { FlowNode } from "../toFlow";
 import { NodeShell } from "./shell";
 
@@ -9,9 +10,11 @@ export function CondNode({ data, selected }: NodeProps<FlowNode>) {
       <Handle type="target" position={Position.Top} />
       <div className="flex flex-col gap-0.5">
         {data.rows.map((r, i) => (
-          <div key={r.handle} className="truncate font-mono text-[11px] leading-5">
-            <span className="text-accent">{i === 0 ? "if" : r.cond ? "elif" : "else"}</span>
-            {r.cond && <span className="text-zinc-300"> {r.cond}</span>}
+          <div key={r.handle} className="flex font-mono text-[11px] leading-5">
+            <span className="shrink-0 text-warn">{i === 0 ? "if" : r.cond ? "elif" : "else"}</span>
+            {r.cond && (
+              <TailText text={r.cond} max={22} className="ml-1 overflow-hidden text-ink" />
+            )}
           </div>
         ))}
       </div>

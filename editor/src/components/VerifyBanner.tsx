@@ -11,11 +11,11 @@ export function VerifyBanner() {
     return (
       <div className="flex shrink-0 items-center gap-2 border-b border-accent/25 bg-accent/[0.07] px-4 py-1.5">
         <span className="font-mono text-xs text-accent">✓ 图文一致</span>
-        <span className="font-mono text-[10px] text-zinc-500">
+        <span className="font-mono text-[10px] text-mut">
           {new Date(result.at).toLocaleTimeString()} · 画布图与引擎回读图语义等价
         </span>
         <div className="flex-1" />
-        <button onClick={dismiss} className="font-mono text-xs text-zinc-500 hover:text-zinc-300">
+        <button onClick={dismiss} className="font-mono text-xs text-mut hover:text-ink">
           ×
         </button>
       </div>
@@ -28,7 +28,7 @@ export function VerifyBanner() {
           ✗ 图文不一致 · {result.diffs.length} 处差异
         </span>
         <div className="flex-1" />
-        <button onClick={dismiss} className="font-mono text-xs text-zinc-500 hover:text-zinc-300">
+        <button onClick={dismiss} className="font-mono text-xs text-mut hover:text-ink">
           ×
         </button>
       </div>

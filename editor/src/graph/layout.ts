@@ -29,6 +29,8 @@ function estimateSize(n: FlowNode): { width: number; height: number } {
       return { width: 200, height: 52 };
     case "comment":
       return { width: 200, height: 40 };
+    case "group":
+      return { width: 260, height: 44 + 3 * 22 };
   }
 }
 

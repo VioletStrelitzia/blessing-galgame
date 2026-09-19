@@ -16,13 +16,13 @@ function DiagItem({ diag, nodeId }: { diag: Diag; nodeId: string | null }) {
       disabled={!located}
       onClick={() => nodeId !== null && focusNode(nodeId)}
       className={`w-full rounded-md px-2 py-1.5 text-left transition-colors ${
-        located ? "hover:bg-white/[0.04]" : "cursor-default opacity-45"
+        located ? "hover:bg-grid/40" : "cursor-default opacity-45"
       }`}
     >
       <span className={`font-mono text-[10px] ${levelStyle(diag.level)}`}>
         {diag.file.replace(/^res:\/\//, "")}:{diag.line}
       </span>
-      <div className="mt-0.5 text-xs leading-relaxed text-zinc-300">{diag.msg}</div>
+      <div className="mt-0.5 text-xs leading-relaxed text-ink">{diag.msg}</div>
     </button>
   );
 }
@@ -40,19 +40,17 @@ export function Diagnostics() {
       className="flex-1"
       action={
         report && (
-          <span className={`font-mono text-[10px] ${report.ok ? "text-zinc-500" : "text-danger"}`}>
+          <span className={`font-mono text-[10px] ${report.ok ? "text-mut" : "text-danger"}`}>
             {report.ok ? "ok" : "failed"} · {diags.length}
           </span>
         )
       }
     >
       {!report && (
-        <div className="px-2 py-1 text-xs text-zinc-600">
-          尚无诊断：保存或点击工具栏「检查」运行
-        </div>
+        <div className="px-2 py-1 text-xs text-dim">尚无诊断：保存或点击工具栏「检查」运行</div>
       )}
       {report && diags.length === 0 && (
-        <div className="px-2 py-1 text-xs text-zinc-600">无诊断，全部通过</div>
+        <div className="px-2 py-1 text-xs text-dim">无诊断，全部通过</div>
       )}
       {errors.length > 0 && (
         <div className="mb-2">

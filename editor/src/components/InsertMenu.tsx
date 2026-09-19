@@ -55,19 +55,19 @@ export function InsertMenu() {
   };
 
   const itemCls =
-    "w-full rounded-md px-2 py-1.5 text-left text-xs text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-accent disabled:cursor-not-allowed disabled:opacity-35";
+    "w-full rounded-md px-2 py-1.5 text-left text-xs text-ink transition-colors hover:bg-grid/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-35";
 
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={() => openInsertMenu(null)} />
       <div
-        className="fixed z-50 max-h-80 w-52 overflow-y-auto rounded-lg border border-white/10 bg-base p-1.5 shadow-2xl"
+        className="fixed z-50 max-h-80 w-52 overflow-y-auto rounded-md border border-grid bg-panel p-1.5"
         style={{
           left: Math.min(menu.x, window.innerWidth - 224),
           top: Math.min(menu.y, window.innerHeight - 340),
         }}
       >
-        <div className="px-2 pt-1 pb-1.5 font-mono text-[10px] tracking-widest text-zinc-500 uppercase">
+        <div className="px-2 pt-1 pb-1.5 font-mono text-[10px] tracking-widest text-mut uppercase">
           {onEdge ? "在边上插入" : "末尾追加"}
         </div>
         {KINDS.map((k) =>
@@ -77,14 +77,14 @@ export function InsertMenu() {
                 className={`${itemCls} flex cursor-pointer list-none items-center justify-between`}
               >
                 <span>{k.label}</span>
-                <span className="font-mono text-[10px] text-zinc-600">{k.hint}</span>
+                <span className="font-mono text-[10px] text-dim">{k.hint}</span>
               </summary>
-              <div className="mt-0.5 ml-2 max-h-44 overflow-y-auto border-l border-white/10 pl-1">
+              <div className="mt-0.5 ml-2 max-h-44 overflow-y-auto border-l border-grid pl-1">
                 {heads.map((h) => (
                   <button
                     key={h}
                     onClick={() => pick("inst", h)}
-                    className="w-full rounded px-1.5 py-1 text-left font-mono text-[11px] text-zinc-400 hover:bg-white/[0.06] hover:text-accent"
+                    className="w-full rounded px-1.5 py-1 text-left font-mono text-[11px] text-mut hover:bg-grid/50 hover:text-accent"
                   >
                     {h}
                   </button>
@@ -100,7 +100,7 @@ export function InsertMenu() {
               className={`${itemCls} flex items-center justify-between`}
             >
               <span>{k.label}</span>
-              <span className="font-mono text-[10px] text-zinc-600">{k.hint}</span>
+              <span className="font-mono text-[10px] text-dim">{k.hint}</span>
             </button>
           ),
         )}

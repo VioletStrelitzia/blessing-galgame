@@ -52,6 +52,8 @@ export interface EditorState {
   lastSaved: string | null;
   undoStack: BgalsGraph[];
   redoStack: BgalsGraph[];
+  /** 已展开的聚合链（group:<首节点 id> 集合，视图层状态，随剧本切换清空） */
+  expandedGroups: Set<string>;
   insertMenu: InsertMenuState | null;
   loading: boolean;
   saving: boolean;
@@ -61,6 +63,8 @@ export interface EditorState {
 
   select(id: string | null): void;
   focusNode(id: string): void;
+  expandGroup(id: string): void;
+  collapseGroup(id: string): void;
   setPosition(id: string, pos: Pos): void;
   openInsertMenu(menu: InsertMenuState | null): void;
   dismissVerify(): void;
@@ -133,6 +137,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   lastSaved: null,
   undoStack: [],
   redoStack: [],
+  expandedGroups: new Set<string>(),
   insertMenu: null,
   loading: false,
   saving: false,
@@ -145,6 +150,20 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
   focusNode(id) {
     set((s) => ({ selected: id, focusReq: { id, n: (s.focusReq?.n ?? 0) + 1 } }));
+  },
+  expandGroup(id) {
+    const s = get();
+    if (s.expandedGroups.has(id)) return;
+    const next = new Set(s.expandedGroups);
+    next.add(id);
+    set({ expandedGroups: next });
+  },
+  collapseGroup(id) {
+    const s = get();
+    if (!s.expandedGroups.has(id)) return;
+    const next = new Set(s.expandedGroups);
+    next.delete(id);
+    set({ expandedGroups: next });
   },
   setPosition(id, pos) {
     const s = get();
