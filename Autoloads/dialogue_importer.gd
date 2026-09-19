@@ -49,12 +49,18 @@ static func script_name_of(file_path: String, read_dir: String) -> String:
 	return rel.get_basename().replace("/", "_").replace("\\", "_")
 
 
+## 剧本源文件扩展名：目录扫描只认 .txt（编辑器的 .graph.json sidecar 等邻接文件不入编译）
+const SCRIPT_EXT := ".txt"
+
+
 ## 扫描源目录生成 known_scripts：jump/begin 目标名集合（模组 PCK 可提供额外剧本，缺失仅警告不报错）
 static func scan_script_names(read_dir: String) -> Array[String]:
 	var known_scripts: Array[String] = []
 	if not DirAccess.dir_exists_absolute(read_dir):
 		return known_scripts
 	for file_path in Utils.get_file_list(read_dir, true, false):
+		if not file_path.ends_with(SCRIPT_EXT):
+			continue
 		known_scripts.append(script_name_of(file_path, read_dir))
 	return known_scripts
 
@@ -118,6 +124,8 @@ static func compile_all(read_dir: String, save_dir: String, char_max: int, known
 		# char 实例上限与资源登记表由调用方注入（config.json 的 character.max / index.json）
 		var known_scripts := scan_script_names(read_dir)
 		for file_path in file_list:
+			if not file_path.ends_with(SCRIPT_EXT):
+				continue
 			var script_name := script_name_of(file_path, read_dir)
 			var text_path := read_dir.path_join(file_path)
 			var output_path := save_dir.path_join(script_name + ".tres")
