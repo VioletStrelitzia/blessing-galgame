@@ -1,0 +1,743 @@
+{
+  "anchor_whitelist": ["sfx", "voice", "char", "bg", "music", "trans", "pause"],
+  "compiler": "bgals2.4",
+  "cond_tags": ["PUSH_NUM", "PUSH_VAR", "CMP", "NOT", "AND", "OR"],
+  "heads": [
+    "BLANK",
+    "MUSIC_PLAY",
+    "MUSIC_PAUSE",
+    "MUSIC_RESUME",
+    "MUSIC_STOP",
+    "VOICE_PLAY",
+    "SFX_PLAY",
+    "SET_BACKGROUND",
+    "CHAR_SETUP",
+    "CHAR_SHOW_FADE",
+    "CHAR_HIDE_FADE",
+    "CHAR_MOVE_TO",
+    "CHAR_WAIT",
+    "CHAR_CHANGE_TEXTURE",
+    "OPTION",
+    "OPTION_END",
+    "VAR_SET",
+    "VAR_ADD",
+    "VAR_SUB",
+    "VAR_MUL",
+    "VAR_DIV",
+    "VAR_RANDOM",
+    "IF",
+    "ELSE_IF",
+    "ELSE",
+    "END_IF",
+    "SET_BEGIN_SCRIPT",
+    "JUMP_SCRIPT",
+    "JUMP_MAIN_MENU",
+    "SCENE_MOUNT",
+    "SCENE_UNMOUNT",
+    "TRANSITION_IN",
+    "TRANSITION_OUT",
+    "WAIT",
+    "VOICE_STOP",
+    "SFX_STOP",
+    "MUSIC_VOLUME",
+    "SFX_VOLUME"
+  ],
+  "indent_unit": 4,
+  "reserved_keys": [
+    "bg",
+    "music",
+    "sfx",
+    "voice",
+    "char",
+    "var",
+    "if",
+    "elif",
+    "else",
+    "jump",
+    "begin",
+    "wait",
+    "scene",
+    "trans"
+  ],
+  "spec": {
+    "BLANK": [],
+    "CHAR_CHANGE_TEXTURE": [
+      {
+        "default": 0,
+        "name": "char_index",
+        "role": "",
+        "structural": false,
+        "type": "INT"
+      },
+      {
+        "default": "",
+        "name": "path",
+        "role": "texture",
+        "structural": false,
+        "type": "STR"
+      }
+    ],
+    "CHAR_HIDE_FADE": [
+      {
+        "default": 0,
+        "name": "char_index",
+        "role": "",
+        "structural": false,
+        "type": "INT"
+      },
+      {
+        "default": 1.0,
+        "name": "duration",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": false,
+        "name": "wait",
+        "role": "",
+        "structural": false,
+        "type": "BOOL"
+      }
+    ],
+    "CHAR_MOVE_TO": [
+      {
+        "default": 0,
+        "name": "char_index",
+        "role": "",
+        "structural": false,
+        "type": "INT"
+      },
+      {
+        "default": 0.0,
+        "name": "x",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": 0.0,
+        "name": "y",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": 1.0,
+        "name": "duration",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": false,
+        "name": "wait",
+        "role": "",
+        "structural": false,
+        "type": "BOOL"
+      }
+    ],
+    "CHAR_SETUP": [
+      {
+        "default": 0,
+        "name": "char_index",
+        "role": "",
+        "structural": false,
+        "type": "INT"
+      },
+      {
+        "default": "",
+        "name": "path",
+        "role": "texture",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": 0.0,
+        "name": "x",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": 0.0,
+        "name": "y",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      }
+    ],
+    "CHAR_SHOW_FADE": [
+      {
+        "default": 0,
+        "name": "char_index",
+        "role": "",
+        "structural": false,
+        "type": "INT"
+      },
+      {
+        "default": 1.0,
+        "name": "duration",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": false,
+        "name": "wait",
+        "role": "",
+        "structural": false,
+        "type": "BOOL"
+      }
+    ],
+    "CHAR_WAIT": [
+      {
+        "default": 0,
+        "name": "char_index",
+        "role": "",
+        "structural": false,
+        "type": "INT"
+      },
+      {
+        "default": 0.0,
+        "name": "duration",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      }
+    ],
+    "ELSE": [
+      {
+        "default": 0,
+        "name": "end_target",
+        "role": "",
+        "structural": true,
+        "type": "INT"
+      }
+    ],
+    "ELSE_IF": [
+      {
+        "default": [],
+        "name": "tokens",
+        "role": "",
+        "structural": false,
+        "type": "ARR"
+      },
+      {
+        "default": 0,
+        "name": "next_target",
+        "role": "",
+        "structural": true,
+        "type": "INT"
+      },
+      {
+        "default": 0,
+        "name": "end_target",
+        "role": "",
+        "structural": true,
+        "type": "INT"
+      }
+    ],
+    "END_IF": [],
+    "IF": [
+      {
+        "default": [],
+        "name": "tokens",
+        "role": "",
+        "structural": false,
+        "type": "ARR"
+      },
+      {
+        "default": 0,
+        "name": "next_target",
+        "role": "",
+        "structural": true,
+        "type": "INT"
+      }
+    ],
+    "JUMP_MAIN_MENU": [],
+    "JUMP_SCRIPT": [
+      {
+        "default": "",
+        "name": "script_name",
+        "role": "script",
+        "structural": false,
+        "type": "STR"
+      }
+    ],
+    "MUSIC_PAUSE": [],
+    "MUSIC_PLAY": [
+      {
+        "default": "",
+        "name": "path",
+        "role": "audio",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": 0.0,
+        "name": "from",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": true,
+        "name": "loop",
+        "role": "",
+        "structural": false,
+        "type": "BOOL"
+      },
+      {
+        "default": 1.0,
+        "name": "fade_in",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": 1.0,
+        "name": "fade_out",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": 1.0,
+        "name": "volume",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      }
+    ],
+    "MUSIC_RESUME": [],
+    "MUSIC_STOP": [
+      {
+        "default": 1.0,
+        "name": "fade",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      }
+    ],
+    "MUSIC_VOLUME": [
+      {
+        "default": 1.0,
+        "name": "volume",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": 0.5,
+        "name": "fade",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      }
+    ],
+    "OPTION": [
+      {
+        "default": "",
+        "name": "text",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": [],
+        "name": "tokens",
+        "role": "",
+        "structural": false,
+        "type": "ARR"
+      },
+      {
+        "default": false,
+        "name": "is_head",
+        "role": "",
+        "structural": true,
+        "type": "BOOL"
+      },
+      {
+        "default": 0,
+        "name": "body_start",
+        "role": "",
+        "structural": true,
+        "type": "INT"
+      },
+      {
+        "default": -1,
+        "name": "next_option",
+        "role": "",
+        "structural": true,
+        "type": "INT"
+      },
+      {
+        "default": 0,
+        "name": "group_end",
+        "role": "",
+        "structural": true,
+        "type": "INT"
+      }
+    ],
+    "OPTION_END": [],
+    "SCENE_MOUNT": [
+      {
+        "default": "world2d",
+        "name": "type",
+        "role": "scene_type",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": "default",
+        "name": "name",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": "",
+        "name": "path",
+        "role": "res_path",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": 0.0,
+        "name": "time",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": "fade",
+        "name": "anim",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      }
+    ],
+    "SCENE_UNMOUNT": [
+      {
+        "default": "world2d",
+        "name": "type",
+        "role": "scene_type",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": "default",
+        "name": "name",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": 0.0,
+        "name": "time",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": "fade",
+        "name": "anim",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": true,
+        "name": "free",
+        "role": "",
+        "structural": false,
+        "type": "BOOL"
+      }
+    ],
+    "SET_BACKGROUND": [
+      {
+        "default": "",
+        "name": "path",
+        "role": "texture",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": 0.0,
+        "name": "time",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      }
+    ],
+    "SET_BEGIN_SCRIPT": [
+      {
+        "default": "",
+        "name": "script_name",
+        "role": "script",
+        "structural": false,
+        "type": "STR"
+      }
+    ],
+    "SFX_PLAY": [
+      {
+        "default": "",
+        "name": "path",
+        "role": "audio",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": 0.0,
+        "name": "from",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": 1.0,
+        "name": "volume",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": false,
+        "name": "loop",
+        "role": "",
+        "structural": false,
+        "type": "BOOL"
+      }
+    ],
+    "SFX_STOP": [
+      {
+        "default": "",
+        "name": "ref",
+        "role": "audio",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": 0.3,
+        "name": "fade",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      }
+    ],
+    "SFX_VOLUME": [
+      {
+        "default": "",
+        "name": "ref",
+        "role": "audio",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": 1.0,
+        "name": "volume",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": 0.3,
+        "name": "fade",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      }
+    ],
+    "TRANSITION_IN": [
+      {
+        "default": 1.0,
+        "name": "time",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": "fade_in",
+        "name": "anim",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": true,
+        "name": "wait",
+        "role": "",
+        "structural": false,
+        "type": "BOOL"
+      }
+    ],
+    "TRANSITION_OUT": [
+      {
+        "default": 1.0,
+        "name": "time",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": "fade_out",
+        "name": "anim",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": true,
+        "name": "wait",
+        "role": "",
+        "structural": false,
+        "type": "BOOL"
+      }
+    ],
+    "VAR_ADD": [
+      {
+        "default": "",
+        "name": "key",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": "",
+        "name": "value",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      }
+    ],
+    "VAR_DIV": [
+      {
+        "default": "",
+        "name": "key",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": "",
+        "name": "value",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      }
+    ],
+    "VAR_MUL": [
+      {
+        "default": "",
+        "name": "key",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": "",
+        "name": "value",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      }
+    ],
+    "VAR_RANDOM": [
+      {
+        "default": "",
+        "name": "key",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": 0.0,
+        "name": "min",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": 1.0,
+        "name": "max",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      }
+    ],
+    "VAR_SET": [
+      {
+        "default": "",
+        "name": "key",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": "",
+        "name": "value",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      }
+    ],
+    "VAR_SUB": [
+      {
+        "default": "",
+        "name": "key",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": "",
+        "name": "value",
+        "role": "",
+        "structural": false,
+        "type": "STR"
+      }
+    ],
+    "VOICE_PLAY": [
+      {
+        "default": "",
+        "name": "path",
+        "role": "audio",
+        "structural": false,
+        "type": "STR"
+      },
+      {
+        "default": 0.0,
+        "name": "from",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      },
+      {
+        "default": 1.0,
+        "name": "volume",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      }
+    ],
+    "VOICE_STOP": [
+      {
+        "default": 0.1,
+        "name": "fade",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      }
+    ],
+    "WAIT": [
+      {
+        "default": 0.0,
+        "name": "duration",
+        "role": "",
+        "structural": false,
+        "type": "FLOAT"
+      }
+    ]
+  }
+}

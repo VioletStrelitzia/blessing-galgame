@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@theme {
+  --color-base: #09090b;
+  --color-accent: #22d3ee;
+  --color-warn: #fbbf24;
+  --color-danger: #f87171;
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, "Courier New", monospace;
+}
+
+body {
+  background-color: var(--color-base);
+  color: var(--color-zinc-300);
+}
+
+/* 画布点阵背景 */
+.flow-dots {
+  background-image: radial-gradient(circle, rgb(255 255 255 / 0.07) 1px, transparent 1.2px);
+  background-size: 22px 22px;
+}
+
+/* React Flow 深色定制 */
+.react-flow {
+  background: transparent;
+}
+.react-flow__edge-path {
+  stroke: rgb(255 255 255 / 0.25);
+  stroke-width: 1.5;
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--color-accent);
+}
+.react-flow__edge-text {
+  fill: var(--color-zinc-400);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+.react-flow__edge-textbg {
+  fill: var(--color-base);
+}
+.react-flow__handle {
+  width: 6px;
+  height: 6px;
+  background: var(--color-zinc-600);
+  border: none;
+}
+.react-flow__handle:hover {
+  background: var(--color-accent);
+}
+.react-flow__controls {
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: none;
+}
+.react-flow__controls-button {
+  background: rgb(255 255 255 / 0.04);
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  fill: var(--color-zinc-400);
+}
+.react-flow__controls-button:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+.react-flow__minimap {
+  background-color: rgb(255 255 255 / 0.03);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 8px;
+}
+.react-flow__attribution {
+  background: transparent;
+  color: var(--color-zinc-600);
+}

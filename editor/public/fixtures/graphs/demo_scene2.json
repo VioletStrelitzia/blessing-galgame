@@ -1,0 +1,186 @@
+{
+  "compiler": "bgals2.4",
+  "edges": [
+    {
+      "from": "start",
+      "kind": "seq",
+      "to": "n0"
+    },
+    {
+      "from": "n0",
+      "kind": "seq",
+      "to": "n1"
+    },
+    {
+      "from": "n1",
+      "kind": "seq",
+      "to": "n2"
+    },
+    {
+      "from": "n2",
+      "kind": "seq",
+      "to": "n3"
+    },
+    {
+      "from": "n3",
+      "kind": "seq",
+      "to": "n4"
+    },
+    {
+      "from": "n4",
+      "kind": "seq",
+      "to": "n5"
+    },
+    {
+      "from": "n5",
+      "kind": "seq",
+      "to": "n6"
+    },
+    {
+      "from": "n6",
+      "kind": "seq",
+      "to": "n7"
+    },
+    {
+      "from": "n7",
+      "kind": "seq",
+      "to": "n8"
+    },
+    {
+      "from": "n8",
+      "kind": "seq",
+      "to": "n9"
+    },
+    {
+      "from": "n9",
+      "kind": "seq",
+      "to": "n10"
+    },
+    {
+      "from": "n10",
+      "kind": "seq",
+      "to": "n11"
+    }
+  ],
+  "format": "bgals-graph/1",
+  "nodes": [
+    {
+      "id": "start",
+      "kind": "start"
+    },
+    {
+      "head": "SET_BACKGROUND",
+      "id": "n0",
+      "kind": "inst",
+      "params": {
+        "path": "demo_stage_night"
+      }
+    },
+    {
+      "head": "CHAR_SETUP",
+      "id": "n1",
+      "kind": "inst",
+      "params": {
+        "char_index": 1,
+        "path": "demo_char_b",
+        "x": 0.7,
+        "y": 0.95
+      }
+    },
+    {
+      "head": "CHAR_SHOW_FADE",
+      "id": "n2",
+      "kind": "inst",
+      "params": {
+        "char_index": 1,
+        "duration": 0.6
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "这是第二个脚本文件，我们是通过 jump 指令跳过来的。",
+      "id": "n3",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "这是第二个脚本文件，我们是通过 jump 指令跳过来的。"
+    },
+    {
+      "head": "CHAR_CHANGE_TEXTURE",
+      "id": "n4",
+      "kind": "inst",
+      "params": {
+        "char_index": 1,
+        "path": "demo_char_a"
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "char texture 指令可以更换立绘资源。",
+      "id": "n5",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "char texture 指令可以更换立绘资源。"
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "接下来角色会淡出。",
+      "id": "n6",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "接下来角色会淡出。"
+    },
+    {
+      "head": "CHAR_HIDE_FADE",
+      "id": "n7",
+      "kind": "inst",
+      "params": {
+        "char_index": 1,
+        "duration": 0.8
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "演示到此结束。",
+      "id": "n8",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "演示到此结束。"
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "感谢体验 Blessing Galgame Engine！",
+      "id": "n9",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "感谢体验 Blessing Galgame Engine！"
+    },
+    {
+      "head": "SET_BEGIN_SCRIPT",
+      "id": "n10",
+      "kind": "inst",
+      "params": {
+        "script_name": "demo_scene1"
+      }
+    },
+    {
+      "id": "n11",
+      "kind": "jump",
+      "target": "main_menu"
+    },
+    {
+      "id": "end",
+      "kind": "end"
+    }
+  ],
+  "script": "demo_scene2"
+}

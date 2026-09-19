@@ -1,0 +1,448 @@
+{
+  "compiler": "bgals2.4",
+  "edges": [
+    {
+      "from": "start",
+      "kind": "seq",
+      "to": "n0"
+    },
+    {
+      "from": "n0",
+      "kind": "seq",
+      "to": "n1"
+    },
+    {
+      "from": "n1",
+      "kind": "seq",
+      "to": "n2"
+    },
+    {
+      "from": "n2",
+      "kind": "seq",
+      "to": "n3"
+    },
+    {
+      "from": "n3",
+      "kind": "seq",
+      "to": "n4"
+    },
+    {
+      "from": "n4",
+      "kind": "seq",
+      "to": "n5"
+    },
+    {
+      "from": "n5",
+      "kind": "seq",
+      "to": "n6"
+    },
+    {
+      "from": "n6",
+      "kind": "seq",
+      "to": "n7"
+    },
+    {
+      "from": "n7",
+      "kind": "seq",
+      "to": "n8"
+    },
+    {
+      "from": "n8",
+      "kind": "seq",
+      "to": "n9"
+    },
+    {
+      "from": "n9",
+      "kind": "seq",
+      "to": "n10"
+    },
+    {
+      "from": "n10",
+      "kind": "seq",
+      "to": "n11"
+    },
+    {
+      "from": "n11",
+      "kind": "seq",
+      "to": "n12"
+    },
+    {
+      "from": "n12",
+      "kind": "seq",
+      "to": "n13"
+    },
+    {
+      "from": "n13",
+      "kind": "seq",
+      "to": "n14"
+    },
+    {
+      "from": "n14",
+      "kind": "seq",
+      "to": "n15"
+    },
+    {
+      "from": "n15",
+      "kind": "seq",
+      "to": "n16"
+    },
+    {
+      "from": "n16",
+      "kind": "seq",
+      "to": "n17"
+    },
+    {
+      "from": "n17",
+      "kind": "seq",
+      "to": "n18"
+    },
+    {
+      "from": "n18",
+      "kind": "seq",
+      "to": "n19"
+    },
+    {
+      "from": "n19",
+      "kind": "seq",
+      "to": "n20"
+    },
+    {
+      "from": "n20",
+      "kind": "seq",
+      "to": "n21"
+    },
+    {
+      "from": "n21",
+      "kind": "seq",
+      "to": "n22"
+    },
+    {
+      "from": "n22",
+      "kind": "seq",
+      "to": "n23"
+    },
+    {
+      "from": "n23",
+      "kind": "seq",
+      "to": "n24"
+    },
+    {
+      "from": "n24",
+      "kind": "seq",
+      "to": "n25"
+    },
+    {
+      "from": "n25",
+      "kind": "seq",
+      "to": "n26"
+    },
+    {
+      "from": "n26",
+      "kind": "seq",
+      "to": "n27"
+    },
+    {
+      "from": "n27",
+      "kind": "seq",
+      "to": "n28"
+    },
+    {
+      "from": "n28",
+      "kind": "seq",
+      "to": "n29"
+    }
+  ],
+  "format": "bgals-graph/1",
+  "nodes": [
+    {
+      "id": "start",
+      "kind": "start"
+    },
+    {
+      "head": "SET_BACKGROUND",
+      "id": "n0",
+      "kind": "inst",
+      "params": {
+        "path": "demo_stage"
+      }
+    },
+    {
+      "head": "MUSIC_PLAY",
+      "id": "n1",
+      "kind": "inst",
+      "params": {
+        "path": "demo_bgm"
+      }
+    },
+    {
+      "head": "SCENE_MOUNT",
+      "id": "n2",
+      "kind": "inst",
+      "params": {
+        "name": "演出层",
+        "path": "res://Scenes/OptionUI/option_ui.tscn",
+        "time": 0.5,
+        "type": "ui"
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "这个剧本演示场景挂载、转场与等待指令。",
+      "id": "n3",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "这个剧本演示场景挂载、转场与等待指令。"
+    },
+    {
+      "head": "TRANSITION_OUT",
+      "id": "n4",
+      "kind": "inst",
+      "params": {
+        "time": 0.5
+      }
+    },
+    {
+      "head": "TRANSITION_IN",
+      "id": "n5",
+      "kind": "inst",
+      "params": {
+        "time": 0.5
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "刚才画面暗下又亮起——trans wait:true 会等转场播完。",
+      "id": "n6",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "刚才画面暗下又亮起——trans wait:true 会等转场播完。"
+    },
+    {
+      "head": "WAIT",
+      "id": "n7",
+      "kind": "inst",
+      "params": {
+        "duration": 1.0
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "刚才停顿了一秒。",
+      "id": "n8",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "刚才停顿了一秒。"
+    },
+    {
+      "head": "SFX_PLAY",
+      "id": "n9",
+      "kind": "inst",
+      "params": {
+        "loop": true,
+        "path": "demo_bgm",
+        "volume": 0.15
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "这层低低的循环底噪来自 sfx loop:true——环境音用法。",
+      "id": "n10",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "这层低低的循环底噪来自 sfx loop:true——环境音用法。"
+    },
+    {
+      "head": "MUSIC_VOLUME",
+      "id": "n11",
+      "kind": "inst",
+      "params": {
+        "fade": 0.8,
+        "volume": 0.4
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "BGM 压暗了——music volume 调节在播音轨，不重启曲目。",
+      "id": "n12",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "BGM 压暗了——music volume 调节在播音轨，不重启曲目。"
+    },
+    {
+      "head": "SFX_STOP",
+      "id": "n13",
+      "kind": "inst",
+      "params": {
+        "fade": 0.5,
+        "ref": "demo_bgm"
+      }
+    },
+    {
+      "head": "MUSIC_VOLUME",
+      "id": "n14",
+      "kind": "inst",
+      "params": {
+        "fade": 0.8
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "环境音停止，BGM 恢复全量。",
+      "id": "n15",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "环境音停止，BGM 恢复全量。"
+    },
+    {
+      "head": "MUSIC_PLAY",
+      "id": "n16",
+      "kind": "inst",
+      "params": {
+        "fade_in": 2.0,
+        "fade_out": 0.3,
+        "path": "demo_bgm_2"
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "旧曲快退、新曲缓缓漫上来——fade_in 与 fade_out 分开控制的交叉淡变。",
+      "id": "n17",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "旧曲快退、新曲缓缓漫上来——fade_in 与 fade_out 分开控制的交叉淡变。"
+    },
+    {
+      "head": "SFX_PLAY",
+      "id": "n18",
+      "kind": "inst",
+      "params": {
+        "loop": true,
+        "path": "demo_bgm",
+        "volume": 0.15
+      }
+    },
+    {
+      "head": "SFX_VOLUME",
+      "id": "n19",
+      "kind": "inst",
+      "params": {
+        "fade": 1.5,
+        "ref": "demo_bgm",
+        "volume": 0.4
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "环境音渐渐变响了——sfx volume 不中断播放地调节在播音效响度。",
+      "id": "n20",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "环境音渐渐变响了——sfx volume 不中断播放地调节在播音效响度。"
+    },
+    {
+      "head": "SFX_STOP",
+      "id": "n21",
+      "kind": "inst",
+      "params": {
+        "fade": 0.5,
+        "ref": "demo_bgm"
+      }
+    },
+    {
+      "head": "CHAR_SETUP",
+      "id": "n22",
+      "kind": "inst",
+      "params": {
+        "path": "demo_char_a",
+        "x": 0.3,
+        "y": 0.95
+      }
+    },
+    {
+      "head": "CHAR_SHOW_FADE",
+      "id": "n23",
+      "kind": "inst",
+      "params": {
+        "duration": 0.4,
+        "wait": true
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "立绘淡入完成后这句话才出现。",
+      "id": "n24",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "立绘淡入完成后这句话才出现。"
+    },
+    {
+      "head": "CHAR_MOVE_TO",
+      "id": "n25",
+      "kind": "inst",
+      "params": {
+        "duration": 0.5,
+        "wait": true,
+        "x": 0.7,
+        "y": 0.95
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "移动完成后剧情才继续。",
+      "id": "n26",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "移动完成后剧情才继续。"
+    },
+    {
+      "head": "SCENE_UNMOUNT",
+      "id": "n27",
+      "kind": "inst",
+      "params": {
+        "name": "演出层",
+        "time": 0.3,
+        "type": "ui"
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "演示到此结束。",
+      "id": "n28",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "演示到此结束。"
+    },
+    {
+      "id": "n29",
+      "kind": "jump",
+      "target": "main_menu"
+    },
+    {
+      "id": "end",
+      "kind": "end"
+    }
+  ],
+  "script": "demo_scene3"
+}
