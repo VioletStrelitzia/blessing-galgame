@@ -2,8 +2,9 @@
 // 走查：start 沿 seq 边拓扑前进；option_group/cond 的体按 spec.indent_unit 缩进内联展开。
 // 汇合点判定：各分支共同可达、距组头最近（BFS）的节点；分支含 jump 时可能无汇合点，
 // 此时后续内容由唯一可达它的分支自然吞并（语义等价，见设计文档「导出」节）。
+// comment 节点不参与边，发射 `# text` 行于其 before 节点首行之前（before=null 放文件头）。
 
-import type { BgalsGraph, GraphEdge, GraphNode, InstPayload, Params } from "./graph";
+import type { BgalsGraph, CommentNode, GraphEdge, GraphNode, InstPayload, Params } from "./graph";
 import type { BgalsSpec, SpecParam } from "./spec";
 
 // 结构指令由图结构承载，不作为指令行发射
@@ -147,8 +148,16 @@ export function escapeDialogueLine(line: string, spec: BgalsSpec): string {
   return line;
 }
 
-export function emitGraph(graph: BgalsGraph, spec: BgalsSpec): string {
+export interface EmitResult {
+  text: string;
+  /** 节点 id → 其产出的全部行范围（1 起始，含首尾；comment 节点同样记录；未产出行的节点无条目） */
+  lineMap: Record<string, { from: number; to: number }>;
+}
+
+export function emitGraph(graph: BgalsGraph, spec: BgalsSpec): EmitResult {
   const nodes = new Map<string, GraphNode>(graph.nodes.map((n) => [n.id, n]));
+  const start = graph.nodes.find((n) => n.kind === "start");
+  if (!start) throw new Error("图缺少 start 节点");
   const seqNext = new Map<string, string>();
   const branchEdges = new Map<string, GraphEdge[]>();
   for (const e of graph.edges) {
@@ -160,9 +169,34 @@ export function emitGraph(graph: BgalsGraph, spec: BgalsSpec): string {
       branchEdges.set(e.from, list);
     }
   }
+
+  // 注释按附着目标分桶；目标缺失的降级到文件头（可见的降级，不静默丢数据）
+  const comments = graph.nodes.filter((n): n is CommentNode => n.kind === "comment");
+  const commentBucket = new Map<string, CommentNode[]>();
+  const pendingComments = new Set<string>();
+  for (const c of comments) {
+    pendingComments.add(c.id);
+    const key = c.before !== null && nodes.has(c.before) ? c.before : "";
+    const list = commentBucket.get(key) ?? [];
+    list.push(c);
+    commentBucket.set(key, list);
+  }
+
   const unit = " ".repeat(spec.indent_unit > 0 ? spec.indent_unit : 4);
   const lines: string[] = [];
-  const consumed = new Set<string>(["start", "end"]);
+  const lineMap: EmitResult["lineMap"] = {};
+  const consumed = new Set<string>(
+    graph.nodes.filter((n) => n.kind === "start" || n.kind === "end").map((n) => n.id),
+  );
+
+  const emitComment = (c: CommentNode, pad: string) => {
+    if (!pendingComments.has(c.id)) return;
+    pendingComments.delete(c.id);
+    lines.push(`${pad}# ${c.text}`);
+    lineMap[c.id] = { from: lines.length, to: lines.length };
+  };
+
+  for (const c of commentBucket.get("") ?? []) emitComment(c, "");
 
   const reachable = (from: string): Set<string> => {
     const seen = new Set<string>();
@@ -211,6 +245,8 @@ export function emitGraph(graph: BgalsGraph, spec: BgalsSpec): string {
       const node = nodes.get(cur);
       if (!node) return;
       consumed.add(cur);
+      for (const c of commentBucket.get(cur) ?? []) emitComment(c, pad);
+      const from = lines.length + 1;
       let next: string | undefined = seqNext.get(cur);
       if (node.kind === "dialogue") {
         for (const ins of node.prev) {
@@ -248,10 +284,13 @@ export function emitGraph(graph: BgalsGraph, spec: BgalsSpec): string {
         });
         next = merge;
       }
+      if (lines.length >= from) lineMap[cur] = { from, to: lines.length };
       cur = next;
     }
   };
 
-  emitSeq(seqNext.get("start"), 0, new Set());
-  return lines.join("\n") + "\n";
+  emitSeq(seqNext.get(start.id), 0, new Set());
+  // 附着目标未走查到（不可达）的注释收尾到文件尾
+  for (const c of comments) emitComment(c, "");
+  return { text: lines.join("\n") + "\n", lineMap };
 }

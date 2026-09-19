@@ -63,8 +63,23 @@ export interface JumpNode {
   target: string;
 }
 
+/** 编辑器扩展节点：注释。不参与边，dump 不产生；before = 附着目标节点 id，null = 文件头 */
+export interface CommentNode {
+  id: string;
+  kind: "comment";
+  text: string;
+  before: string | null;
+}
+
 export type GraphNode =
-  StartNode | EndNode | InstNode | DialogueNode | OptionGroupNode | CondNode | JumpNode;
+  | StartNode
+  | EndNode
+  | InstNode
+  | DialogueNode
+  | OptionGroupNode
+  | CondNode
+  | JumpNode
+  | CommentNode;
 
 export type NodeKind = GraphNode["kind"];
 
