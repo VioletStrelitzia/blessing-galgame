@@ -1,4 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { TailText } from "../../components/TailText";
 import type { FlowNode } from "../toFlow";
 import { NodeShell } from "./shell";
 
@@ -14,13 +15,17 @@ export function OptionGroupNode({ data, selected }: NodeProps<FlowNode>) {
         {data.rows.map((r) => (
           <div
             key={r.handle}
-            className="flex items-center gap-1.5 text-xs"
+            className="flex items-center gap-1.5 overflow-hidden text-xs"
             style={{ height: ROW_H }}
           >
-            <span className="font-mono text-accent">*</span>
-            <span className="truncate text-zinc-200">{r.text}</span>
+            <span className="shrink-0 font-mono text-warn">*</span>
+            <TailText text={r.text ?? ""} max={18} className="overflow-hidden text-ink" />
             {r.cond && (
-              <span className="truncate font-mono text-[10px] text-warn">if:{r.cond}</span>
+              <TailText
+                text={`if:${r.cond}`}
+                max={16}
+                className="overflow-hidden font-mono text-[10px] text-warn"
+              />
             )}
           </div>
         ))}

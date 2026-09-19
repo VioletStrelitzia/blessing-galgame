@@ -1,22 +1,40 @@
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/jetbrains-mono/700.css";
 @import "tailwindcss";
 
+/* Archify「midnight console」视觉词汇：
+   画布 #020617 / 面板 #0F172A / 网格 #1E293B；文字三级 ink/mut/dim；
+   语义色只表语义；Flat-at-Rest（无阴影无玻璃模糊）；间距刻度 4/8/12/16/24。 */
 @theme {
-  --color-base: #09090b;
+  --color-base: #020617;
+  --color-panel: #0f172a;
+  --color-grid: #1e293b;
+  --color-ink: #ffffff;
+  --color-mut: #94a3b8;
+  --color-dim: #475569;
+  --color-edge: #64748b;
   --color-accent: #22d3ee;
+  --color-ok: #34d399;
+  --color-vi: #a78bfa;
   --color-warn: #fbbf24;
-  --color-danger: #f87171;
-  --font-sans: ui-sans-serif, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, Consolas, "Courier New", monospace;
+  --color-danger: #fb7185;
+  --color-orange: #fb923c;
+  --font-sans:
+    "JetBrains Mono", ui-monospace, Consolas, "Courier New", "Microsoft YaHei", sans-serif;
+  --font-mono:
+    "JetBrains Mono", ui-monospace, Consolas, "Courier New", "Microsoft YaHei", monospace;
 }
 
 body {
   background-color: var(--color-base);
-  color: var(--color-zinc-300);
+  color: var(--color-mut);
 }
 
 /* 画布点阵背景 */
 .flow-dots {
-  background-image: radial-gradient(circle, rgb(255 255 255 / 0.07) 1px, transparent 1.2px);
+  background-color: var(--color-base);
+  background-image: radial-gradient(circle, var(--color-grid) 1px, transparent 1.2px);
   background-size: 22px 22px;
 }
 
@@ -25,49 +43,50 @@ body {
   background: transparent;
 }
 .react-flow__edge-path {
-  stroke: rgb(255 255 255 / 0.25);
-  stroke-width: 1.5;
+  stroke: var(--color-edge);
+  stroke-width: 1.5px;
 }
 .react-flow__edge.selected .react-flow__edge-path {
   stroke: var(--color-accent);
 }
 .react-flow__edge-text {
-  fill: var(--color-zinc-400);
+  fill: var(--color-mut);
   font-size: 10px;
   font-family: var(--font-mono);
 }
 .react-flow__edge-textbg {
-  fill: var(--color-base);
+  fill: var(--color-panel);
+  rx: 3px;
 }
 .react-flow__handle {
   width: 6px;
   height: 6px;
-  background: var(--color-zinc-600);
+  background: var(--color-dim);
   border: none;
 }
 .react-flow__handle:hover {
   background: var(--color-accent);
 }
 .react-flow__controls {
-  border: 1px solid rgb(255 255 255 / 0.08);
-  border-radius: 8px;
+  border: 1px solid var(--color-grid);
+  border-radius: 6px;
   overflow: hidden;
   box-shadow: none;
 }
 .react-flow__controls-button {
-  background: rgb(255 255 255 / 0.04);
-  border-bottom: 1px solid rgb(255 255 255 / 0.08);
-  fill: var(--color-zinc-400);
+  background: var(--color-panel);
+  border-bottom: 1px solid var(--color-grid);
+  fill: var(--color-mut);
 }
 .react-flow__controls-button:hover {
-  background: rgb(255 255 255 / 0.08);
+  background: var(--color-grid);
 }
 .react-flow__minimap {
-  background-color: rgb(255 255 255 / 0.03);
-  border: 1px solid rgb(255 255 255 / 0.08);
-  border-radius: 8px;
+  background-color: var(--color-panel);
+  border: 1px solid var(--color-grid);
+  border-radius: 6px;
 }
 .react-flow__attribution {
   background: transparent;
-  color: var(--color-zinc-600);
+  color: var(--color-dim);
 }

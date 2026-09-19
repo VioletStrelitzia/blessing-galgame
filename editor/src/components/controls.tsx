@@ -1,18 +1,16 @@
-// 统一表单控件：bg-white/5、border-white/10、focus 描边 accent、圆角 6px；mono 用于指令名/参数名。
+// 统一表单控件：bg-base、border-grid、focus 描边 accent、圆角 6px；mono 用于指令名/参数名。
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 const base =
-  "rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-zinc-200 outline-none transition-colors placeholder:text-zinc-600 focus:border-accent/60 disabled:opacity-40";
+  "rounded-md border border-grid bg-base px-2 py-1 text-xs text-ink outline-none transition-colors placeholder:text-dim focus:border-accent/60 disabled:opacity-40";
 
 export const inputCls = `w-full ${base}`;
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="mb-2 block px-2">
-      <div className="mb-1 font-mono text-[10px] tracking-widest text-zinc-500 uppercase">
-        {label}
-      </div>
+      <div className="mb-1 font-mono text-[10px] tracking-widest text-mut uppercase">{label}</div>
       {children}
     </label>
   );
@@ -107,13 +105,11 @@ export function BoolSwitch({
       aria-checked={checked}
       onClick={() => onChange(!checked)}
       className={`flex h-5 w-9 items-center rounded-full border px-0.5 transition-colors ${
-        checked
-          ? "justify-end border-accent/60 bg-accent/25"
-          : "justify-start border-white/10 bg-white/5"
+        checked ? "justify-end border-accent/60 bg-accent/25" : "justify-start border-grid bg-base"
       }`}
     >
       <span
-        className={`h-3.5 w-3.5 rounded-full transition-colors ${checked ? "bg-accent" : "bg-zinc-600"}`}
+        className={`h-3.5 w-3.5 rounded-full transition-colors ${checked ? "bg-accent" : "bg-dim"}`}
       />
     </button>
   );
@@ -171,7 +167,7 @@ export function SmallButton({
       className={`rounded-md border px-1.5 py-0.5 font-mono text-[10px] leading-4 transition-colors disabled:opacity-35 ${
         danger
           ? "border-danger/30 text-danger hover:bg-danger/10"
-          : "border-white/10 text-zinc-400 hover:border-accent/40 hover:text-accent"
+          : "border-grid text-mut hover:border-accent/40 hover:text-accent"
       } ${className ?? ""}`}
     >
       {children}
@@ -187,5 +183,52 @@ export function Datalist({ id, options }: { id: string; options: string[] }) {
         <option key={o} value={o} />
       ))}
     </datalist>
+  );
+}
+
+/** 自动高度 textarea（行内编辑用）：高度随内容伸缩，autoFocus 时光标落末位 */
+export function AutoTextarea({
+  value,
+  onChange,
+  onKeyDown,
+  onBlur,
+  autoFocus,
+  placeholder,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onBlur?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
+  autoFocus?: boolean;
+  placeholder?: string;
+  className?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+  useEffect(() => {
+    const el = ref.current;
+    if (el && autoFocus) {
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅挂载时聚焦一次
+  }, []);
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={onKeyDown}
+      onBlur={onBlur}
+      className={`resize-none overflow-hidden ${className ?? ""}`}
+    />
   );
 }

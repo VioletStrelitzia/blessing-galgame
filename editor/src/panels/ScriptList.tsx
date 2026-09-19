@@ -7,7 +7,7 @@ export function ScriptList() {
   const current = useEditor((s) => s.current);
 
   return (
-    <Panel title="剧本" className="border-b border-white/8">
+    <Panel title="剧本" className="border-b border-grid">
       <ul className="flex flex-col gap-0.5">
         {scripts.map((name) => (
           <li key={name}>
@@ -16,14 +16,14 @@ export function ScriptList() {
               className={`w-full rounded-md px-2 py-1.5 text-left font-mono text-xs transition-colors ${
                 current === name
                   ? "bg-accent/10 text-accent"
-                  : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+                  : "text-mut hover:bg-grid/40 hover:text-ink"
               }`}
             >
               {name}
             </button>
           </li>
         ))}
-        {scripts.length === 0 && <li className="px-2 py-1 text-xs text-zinc-600">无剧本</li>}
+        {scripts.length === 0 && <li className="px-2 py-1 text-xs text-dim">无剧本</li>}
       </ul>
     </Panel>
   );

@@ -24,11 +24,9 @@ export function SlotEditor({
   return (
     <div className="flex flex-col gap-1.5 px-2 pb-1">
       {list.map((inst, i) => (
-        <div key={i} className="rounded-md border border-white/10 bg-white/[0.03] py-1.5">
+        <div key={i} className="rounded-md border border-grid bg-panel py-1.5">
           <div className="mb-1 flex items-center gap-1 px-2">
-            <span className="font-mono text-[10px] text-zinc-600">
-              {slot === "prev" ? "<" : ">"}
-            </span>
+            <span className="font-mono text-[10px] text-dim">{slot === "prev" ? "<" : ">"}</span>
             <SelectInput
               mono
               className="min-w-0 flex-1"

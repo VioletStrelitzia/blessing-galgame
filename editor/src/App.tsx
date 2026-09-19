@@ -12,7 +12,7 @@ import { useEditor } from "./state/store";
 
 function Badge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 font-mono text-[10px] text-zinc-400">
+    <span className="rounded-full border border-grid bg-panel px-2 py-0.5 font-mono text-[10px] text-mut">
       {children}
     </span>
   );
@@ -61,9 +61,9 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col font-sans">
-      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-white/8 px-4">
+      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-grid px-4">
         <span className="font-mono text-sm font-semibold text-accent">BGalS</span>
-        <span className="flex items-center gap-1.5 text-sm text-zinc-200">
+        <span className="flex items-center gap-1.5 text-sm text-ink">
           {graph?.script ?? "…"}
           {dirty && <span className="h-1.5 w-1.5 rounded-full bg-warn" title="有未保存的修改" />}
         </span>
@@ -74,7 +74,7 @@ export default function App() {
       </header>
       <VerifyBanner />
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-60 shrink-0 flex-col border-r border-white/8 bg-white/[0.03]">
+        <aside className="flex w-60 shrink-0 flex-col border-r border-grid bg-panel">
           <ScriptList />
           <Diagnostics />
         </aside>
@@ -84,7 +84,7 @@ export default function App() {
             <FlowCanvas />
           </div>
         </main>
-        <aside className="w-80 shrink-0 border-l border-white/8 bg-white/[0.03]">
+        <aside className="w-80 shrink-0 border-l border-grid bg-panel">
           <Inspector />
         </aside>
       </div>
@@ -94,7 +94,7 @@ export default function App() {
           <div className="flex-1" />
           <button
             onClick={() => setError(null)}
-            className="font-mono text-xs text-zinc-500 hover:text-zinc-300"
+            className="font-mono text-xs text-mut hover:text-ink"
           >
             ×
           </button>

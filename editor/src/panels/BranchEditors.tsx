@@ -77,7 +77,7 @@ export function CondEditor({ nodeId }: { nodeId: string }) {
           <div key={edgeIndex} className="flex items-center gap-1">
             <span className="w-8 shrink-0 text-right font-mono text-[10px] text-accent">{kw}</span>
             {isElse ? (
-              <span className="flex-1 rounded-md border border-white/5 bg-white/[0.02] px-2 py-1 font-mono text-xs text-zinc-600">
+              <span className="flex-1 rounded-md border border-grid/60 bg-panel px-2 py-1 font-mono text-xs text-dim">
                 else（无条件）
               </span>
             ) : (

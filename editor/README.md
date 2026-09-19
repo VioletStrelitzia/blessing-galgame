@@ -26,9 +26,9 @@ editor/
 │   └── godot.ts            #   live 模式：spawn 引擎 CLI，临时文件读回 JSON
 └── src/                    # React 前端
     ├── state/              #   zustand store（mutateGraph 唯一变更入口）+ io（载入/保存/检查/校验）+ edit（编辑动作层）
-    ├── graph/              #   toFlow 投影 / dagre 布局补位 / 自定义节点与 seq 边 / FlowCanvas
+    ├── graph/              #   collapse 聚合 / toFlow 投影 / dagre 布局补位 / kindColor 语义色 / 自定义节点与 seq 边 / FlowCanvas
     ├── panels/             #   剧本列表 / 可编辑 Inspector（含 InstParamsForm、SlotEditor、BranchEditors）/ 诊断
-    ├── components/         #   工具栏 / 插入菜单 / 回环校验横幅 / 统一表单控件
+    ├── components/         #   工具栏 / 插入菜单 / 回环校验横幅 / 统一表单控件 / TailText 尾部截断
     └── dev/bridge.ts       #   调试桥客户端（SSE 收命令 → 注册表执行 → 回传结果）
 ```
 
@@ -62,8 +62,24 @@ npm run build && npm run dev:server
     保存（Ctrl+S）、撤销/重做（Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y）、检查、回环校验；dirty 指示点。
   - Delete/Backspace 或 Inspector 按钮删除节点（组/条件自动收子图，start/end 除外）。
   - 拖动节点实时更新位置（位置独立存放，不进撤销栈，但参与 dirty 判定）。
+  - **双击行内编辑**（dialogue 角色+台词 / comment 文本，共用 `components/inlineEdit.ts` 的
+    `useInlineEdit`）：Enter 提交、Shift+Enter 换行、Esc 取消还原、失焦提交；
+    提交走 `patchDialogue`/`patchComment`（与 Inspector 同一 store action，撤销/dirty 链路一致）；
+    编辑态 nodrag、画布 `zoomOnDoubleClick` 已关闭；聚合组摘要不可行内编辑（点击仍展开）。
 - **视口**：剧本载入/切换后等全部节点测量完成（rAF 轮询）再 `fitView(padding 0.2)`；
   插入/追加的新节点、诊断定位、select_node 均经 focusReq → setCenter 滚入视野。
+- **聚合视图**（纯视图层，不动领域图）：同 kind（dialogue/inst）连续 seq 链长度 > 4 折叠为
+  group 节点（胶囊标签 `DIALOGUE ×12` + 首 2 尾 1 摘要 + 「展开其余 N 条」）；带诊断/选中节点
+  强制可见；展开链首节点左上角有「收起」按钮；触及组的合成边不显示「+」。expandedGroups 随剧本切换清空。
+
+## 视觉（Archify「midnight console」词汇）
+
+画布 `#020617` / 面板 `#0F172A` / 点格 `#1E293B`；文字三级 `#FFFFFF`/`#94A3B8`/`#475569`；
+kind 语义色（青 dialogue / 紫 inst / 琥珀 option·cond / 玫瑰 jump / 灰 comment·end / 绿 start）；
+节点公式 = 不透明底色（`color-mix(语义色 10%, #0F172A)`）+ 1.5px 全饱和描边 + 6px 圆角，Flat-at-Rest；
+连线为正交折线（smoothstep，8px 圆角）1.5px `#64748B` + 闭合小三角；标签药丸底色块（panel，rx 3）。
+全局面等宽（@fontsource/jetbrains-mono 400/600/700），CJK 走系统回退；单行截断一律尾部保留（TailText）。
+
 - **Inspector（spec 驱动）**：dialogue 角色/台词/锚点 chips/prev/post 槽编辑器；
   inst 参数表单（STR→text、FLOAT/INT→number、BOOL→开关；role=audio/texture→refs datalist、
   role=script→剧本 datalist、scene_type→select、res_path→text）；

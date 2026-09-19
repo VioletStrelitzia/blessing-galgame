@@ -6,7 +6,7 @@ import { newScript, runCheck, save, verify } from "../state/io";
 import { useEditor } from "../state/store";
 
 const btn =
-  "rounded-md border border-white/10 bg-white/5 px-2 py-1 font-mono text-[11px] text-zinc-300 transition-colors hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-35";
+  "rounded-md border border-grid bg-base px-2 py-1 font-mono text-[11px] text-ink transition-colors hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-35";
 
 function NewScriptButton() {
   const mode = useEditor((s) => s.mode);
@@ -49,7 +49,7 @@ function NewScriptButton() {
           if (e.key === "Escape") setOpen(false);
         }}
         onBlur={() => setOpen(false)}
-        className="w-36 rounded-md border border-accent/40 bg-white/5 px-2 py-1 font-mono text-[11px] text-zinc-200 outline-none placeholder:text-zinc-600"
+        className="w-36 rounded-md border border-accent/40 bg-base px-2 py-1 font-mono text-[11px] text-ink outline-none placeholder:text-dim"
       />
       <button className={btn} onMouseDown={(e) => e.preventDefault()} onClick={commit}>
         创建
@@ -74,7 +74,7 @@ export function Toolbar() {
 
   const hasGraph = graph !== null;
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-white/8 px-2">
+    <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-grid px-2">
       <button
         className={`${btn} border-accent/40 text-accent`}
         disabled={!hasGraph}
@@ -95,7 +95,7 @@ export function Toolbar() {
       >
         ＃ 注释
       </button>
-      <span className="mx-1 h-4 w-px bg-white/10" />
+      <span className="mx-1 h-4 w-px bg-grid" />
       <button
         className={btn}
         disabled={!hasGraph || saving}
@@ -110,7 +110,7 @@ export function Toolbar() {
       <button className={btn} disabled={!canRedo} title="重做（Ctrl+Shift+Z）" onClick={redo}>
         重做
       </button>
-      <span className="mx-1 h-4 w-px bg-white/10" />
+      <span className="mx-1 h-4 w-px bg-grid" />
       <button
         className={btn}
         disabled={!hasGraph || checking}

@@ -55,6 +55,7 @@ export async function openScript(script: string): Promise<void> {
       focusReq: null,
       undoStack: [],
       redoStack: [],
+      expandedGroups: new Set(),
       lastSaved: snapshotOf(g, positions),
       dirty: false,
       report: null,

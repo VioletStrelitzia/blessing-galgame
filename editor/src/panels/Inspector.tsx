@@ -19,7 +19,7 @@ import { SlotEditor } from "./SlotEditor";
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-3">
-      <div className="px-2 pt-2 pb-1 font-mono text-[10px] tracking-widest text-zinc-500 uppercase">
+      <div className="px-2 pt-2 pb-1 font-mono text-[10px] tracking-widest text-mut uppercase">
         {title}
       </div>
       {children}
@@ -30,7 +30,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function DeleteButton({ node }: { node: GraphNode }) {
   if (node.kind === "start" || node.kind === "end") return null;
   return (
-    <div className="mt-4 border-t border-white/8 px-2 pt-3">
+    <div className="mt-4 border-t border-grid px-2 pt-3">
       <SmallButton
         danger
         title="删除节点（Delete / Backspace）"
@@ -66,7 +66,7 @@ function DialogueView({ node }: { node: GraphNode & { kind: "dialogue" } }) {
             {node.anchors.map((a, i) => (
               <span
                 key={i}
-                className="rounded border border-white/10 bg-white/[0.04] px-1 font-mono text-[10px] leading-4 text-zinc-500"
+                className="rounded border border-grid bg-grid/40 px-1 font-mono text-[10px] leading-4 text-mut"
                 title="锚点为文本派生信息，修改台词后由引擎重建"
               >
                 @{a.index} {a.head}
@@ -141,7 +141,7 @@ function NodeView({ node }: { node: GraphNode }) {
         <Field label="text">
           <TextArea mono rows={4} value={node.text} onChange={(v) => patchComment(node.id, v)} />
         </Field>
-        <div className="px-2 font-mono text-[10px] text-zinc-600">
+        <div className="px-2 font-mono text-[10px] text-dim">
           before: {node.before ?? "（文件头）"}
         </div>
       </Section>
@@ -150,7 +150,7 @@ function NodeView({ node }: { node: GraphNode }) {
 
   return (
     <Section title="节点">
-      <div className="px-2 py-1 font-mono text-xs text-zinc-500">{node.kind}（不可编辑）</div>
+      <div className="px-2 py-1 font-mono text-xs text-mut">{node.kind}（不可编辑）</div>
     </Section>
   );
 }
@@ -162,10 +162,10 @@ export function Inspector() {
 
   return (
     <Panel title="属性" className="h-full">
-      {!node && <div className="px-2 py-1 text-xs text-zinc-600">点击画布节点查看属性</div>}
+      {!node && <div className="px-2 py-1 text-xs text-dim">点击画布节点查看属性</div>}
       {node && (
         <>
-          <div className="px-2 pt-2 font-mono text-[10px] text-zinc-600">id: {node.id}</div>
+          <div className="px-2 pt-2 font-mono text-[10px] text-dim">id: {node.id}</div>
           <NodeView node={node} />
           <DeleteButton node={node} />
         </>

@@ -10,7 +10,7 @@ import { registerDevRoutes } from "./dev";
 import { createFixturesSource, EDITOR_ROOT, HttpError, type Source } from "./fixtures";
 import { createLiveSource } from "./godot";
 
-const PORT = 8787;
+const PORT = Number(process.env.BGALS_PORT ?? 8787);
 const SCRIPT_NAME = /^[\w-]+$/;
 const NEW_SCRIPT_NAME = /^[a-zA-Z][a-zA-Z0-9_]*$/;
 

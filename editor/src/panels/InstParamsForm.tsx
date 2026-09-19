@@ -67,7 +67,7 @@ function ParamField({
   return (
     <>
       <span
-        className="self-center truncate font-mono text-[10px] text-zinc-500"
+        className="self-center overflow-hidden font-mono text-[10px] whitespace-nowrap text-mut"
         title={`${p.type}${p.role ? ` · ${p.role}` : ""}`}
       >
         {p.name}
@@ -93,7 +93,7 @@ export function InstParamsForm({
   if (!spec) return null;
   const defs = (spec.spec[head] ?? []).filter((p) => !p.structural);
   if (defs.length === 0) {
-    return <div className="px-2 py-1 text-xs text-zinc-600">无参数</div>;
+    return <div className="px-2 py-1 text-xs text-dim">无参数</div>;
   }
   const set = (name: string, v: ParamValue | undefined) => {
     const next = { ...params };
