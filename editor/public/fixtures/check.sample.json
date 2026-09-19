@@ -1,0 +1,18 @@
+{
+  "diags": [],
+  "files": [
+    {
+      "file": "res://scripts/demo/scene1.txt",
+      "status": "ok"
+    },
+    {
+      "file": "res://scripts/demo/scene2.txt",
+      "status": "ok"
+    },
+    {
+      "file": "res://scripts/demo/scene3.txt",
+      "status": "ok"
+    }
+  ],
+  "ok": true
+}

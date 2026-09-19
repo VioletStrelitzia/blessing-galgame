@@ -29,3 +29,7 @@ log.txt
 # 过程稿/分析笔记（Issue 先行流程的本地材料，不入库）
 /worknotes/
 *.tmp
+
+# Web 编辑器（editor/）前端产物
+editor/node_modules/
+editor/dist/

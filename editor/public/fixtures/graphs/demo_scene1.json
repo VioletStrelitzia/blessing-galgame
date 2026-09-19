@@ -1,0 +1,366 @@
+{
+  "compiler": "bgals2.4",
+  "edges": [
+    {
+      "from": "start",
+      "kind": "seq",
+      "to": "n0"
+    },
+    {
+      "from": "n0",
+      "kind": "seq",
+      "to": "n1"
+    },
+    {
+      "from": "n1",
+      "kind": "seq",
+      "to": "n2"
+    },
+    {
+      "from": "n2",
+      "kind": "seq",
+      "to": "n3"
+    },
+    {
+      "from": "n3",
+      "kind": "seq",
+      "to": "n4"
+    },
+    {
+      "from": "n4",
+      "kind": "seq",
+      "to": "n5"
+    },
+    {
+      "from": "n5",
+      "kind": "seq",
+      "to": "n6"
+    },
+    {
+      "from": "n6",
+      "kind": "seq",
+      "to": "n7"
+    },
+    {
+      "from": "n7",
+      "kind": "seq",
+      "to": "n8"
+    },
+    {
+      "from": "n8",
+      "kind": "seq",
+      "to": "n9"
+    },
+    {
+      "from": "n9",
+      "kind": "seq",
+      "to": "n10"
+    },
+    {
+      "from": "n10",
+      "kind": "seq",
+      "to": "n11"
+    },
+    {
+      "from": "n11",
+      "kind": "seq",
+      "to": "n12"
+    },
+    {
+      "from": "n12",
+      "kind": "option",
+      "text": "前往第二幕",
+      "to": "n13"
+    },
+    {
+      "from": "n13",
+      "kind": "seq",
+      "to": "n14"
+    },
+    {
+      "cond": "affection >= 1",
+      "from": "n12",
+      "kind": "option",
+      "text": "留在这里",
+      "to": "n15"
+    },
+    {
+      "from": "n15",
+      "kind": "seq",
+      "to": "n16"
+    },
+    {
+      "from": "n16",
+      "kind": "seq",
+      "to": "n17"
+    },
+    {
+      "cond": "affection >= 1 and affection < 100",
+      "from": "n17",
+      "kind": "branch",
+      "to": "n18"
+    },
+    {
+      "from": "n17",
+      "kind": "branch",
+      "to": "n19"
+    },
+    {
+      "from": "n18",
+      "kind": "seq",
+      "to": "n20"
+    },
+    {
+      "from": "n19",
+      "kind": "seq",
+      "to": "n20"
+    },
+    {
+      "from": "n20",
+      "kind": "seq",
+      "to": "n21"
+    },
+    {
+      "from": "n21",
+      "kind": "seq",
+      "to": "n22"
+    }
+  ],
+  "format": "bgals-graph/1",
+  "nodes": [
+    {
+      "id": "start",
+      "kind": "start"
+    },
+    {
+      "head": "SET_BACKGROUND",
+      "id": "n0",
+      "kind": "inst",
+      "params": {
+        "path": "demo_stage"
+      }
+    },
+    {
+      "head": "MUSIC_PLAY",
+      "id": "n1",
+      "kind": "inst",
+      "params": {
+        "path": "demo_bgm"
+      }
+    },
+    {
+      "head": "CHAR_SETUP",
+      "id": "n2",
+      "kind": "inst",
+      "params": {
+        "path": "demo_char_a",
+        "x": 0.3,
+        "y": 0.95
+      }
+    },
+    {
+      "head": "CHAR_SHOW_FADE",
+      "id": "n3",
+      "kind": "inst",
+      "params": {
+        "duration": 0.6
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "欢迎来到 Blessing Galgame Engine 的最小演示。",
+      "id": "n4",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "欢迎来到 Blessing Galgame Engine 的最小演示。"
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "每一句话就是一个「对话块」：前指令在对话前执行，后指令在对话后执行。",
+      "id": "n5",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "每一句话就是一个「对话块」：前指令在对话前执行，后指令在对话后执行。"
+    },
+    {
+      "anchors": [],
+      "character": "",
+      "display_text": "这是旁白——不含冒号的行会被视为旁白。",
+      "id": "n6",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "这是旁白——不含冒号的行会被视为旁白。"
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "注意看，这句说完之后背景会切换。",
+      "id": "n7",
+      "kind": "dialogue",
+      "post": [
+        {
+          "head": "SET_BACKGROUND",
+          "kind": "inst",
+          "params": {
+            "path": "demo_stage_night",
+            "time": 1.0
+          }
+        }
+      ],
+      "prev": [],
+      "text": "注意看，这句说完之后背景会切换。"
+    },
+    {
+      "anchors": [
+        {
+          "head": "CHAR_CHANGE_TEXTURE",
+          "index": 6,
+          "params": {
+            "path": "demo_char_b"
+          }
+        }
+      ],
+      "character": "引路人",
+      "display_text": "立绘可以移动、换图、淡入淡出。",
+      "id": "n8",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [
+        {
+          "head": "CHAR_MOVE_TO",
+          "kind": "inst",
+          "params": {
+            "x": 0.5,
+            "y": 0.95
+          }
+        }
+      ],
+      "text": "立绘可以移动[char 0 texture demo_char_b]、换图、淡入淡出。"
+    },
+    {
+      "head": "VAR_SET",
+      "id": "n9",
+      "kind": "inst",
+      "params": {
+        "key": "affection",
+        "value": "1"
+      }
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "当前好感度：{affection}。",
+      "id": "n10",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "当前好感度：{affection}。"
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "接下来是一个选项分支，请选择。",
+      "id": "n11",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "接下来是一个选项分支，请选择。"
+    },
+    {
+      "id": "n12",
+      "kind": "option_group"
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "好，我们跳转到第二个脚本。",
+      "id": "n13",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "好，我们跳转到第二个脚本。"
+    },
+    {
+      "id": "n14",
+      "kind": "jump",
+      "target": "demo_scene2"
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "没问题，那我们直接走向尾声。",
+      "id": "n15",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "没问题，那我们直接走向尾声。"
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "你可以试试主菜单的存档、读档和设置功能。",
+      "id": "n16",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "你可以试试主菜单的存档、读档和设置功能。"
+    },
+    {
+      "id": "n17",
+      "kind": "cond"
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "你对这里已经很熟悉了。",
+      "id": "n18",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "你对这里已经很熟悉了。"
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "初次见面，请多关照。",
+      "id": "n19",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "初次见面，请多关照。"
+    },
+    {
+      "anchors": [],
+      "character": "引路人",
+      "display_text": "演示到此结束，感谢体验！",
+      "id": "n20",
+      "kind": "dialogue",
+      "post": [],
+      "prev": [],
+      "text": "演示到此结束，感谢体验！"
+    },
+    {
+      "head": "SET_BEGIN_SCRIPT",
+      "id": "n21",
+      "kind": "inst",
+      "params": {
+        "script_name": "demo_scene1"
+      }
+    },
+    {
+      "id": "n22",
+      "kind": "jump",
+      "target": "main_menu"
+    },
+    {
+      "id": "end",
+      "kind": "end"
+    }
+  ],
+  "script": "demo_scene1"
+}
