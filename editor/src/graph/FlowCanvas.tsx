@@ -9,7 +9,7 @@ import {
   type NodeChange,
   type NodeTypes,
 } from "@xyflow/react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { removeNodeById } from "../state/edit";
 import { useEditor } from "../state/store";
 import { collapseRuns, groupIdOf, isGroupNode } from "./collapse";
@@ -44,10 +44,10 @@ const defaultEdgeOptions = {
   markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: "#64748B" },
 } as const;
 
-/** 节点是否已完成尺寸测量（fitView/setCenter 的正确性前提） */
-function measured(n: { measured?: { width?: number; height?: number } }): boolean {
-  return n.measured?.width !== undefined && n.measured?.height !== undefined;
-}
+// 视口策略常量：全图 fit 的可读下限、长图载入时的阅读缩放、手动缩放下限
+const LOAD_FIT_MIN = 0.75;
+const READ_ZOOM = 0.85;
+const MIN_ZOOM = 0.3;
 
 function Canvas() {
   const graph = useEditor((s) => s.graph);
@@ -60,7 +60,7 @@ function Canvas() {
   const focusReq = useEditor((s) => s.focusReq);
   const expandedGroups = useEditor((s) => s.expandedGroups);
   const expandGroup = useEditor((s) => s.expandGroup);
-  const { setCenter, getNode, getNodes, fitView } = useReactFlow();
+  const { setCenter, getNode, getNodes, fitView, getZoom } = useReactFlow();
 
   // 领域图 → 聚合视图 → toFlow；带诊断角标/当前选中的节点强制可见
   const { nodes, edges } = useMemo(() => {
@@ -83,47 +83,80 @@ function Canvas() {
     [nodes, selected],
   );
 
-  // 剧本载入/切换后可靠 fitView：rAF 轮询等全部节点测量完成（含 dagre 补位后的新位置）
+  // 剧本载入/切换后的视口策略：全图能按可读缩放放下才 fitView，否则聚焦起点按阅读缩放展示。
+  // 就绪判定以 DOM 实际渲染为准（RF 内部 measured 无可靠 effect 触发源），rAF 轮询，每剧本一次。
+  const fittedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (current === null) return;
+    fittedFor.current = null;
+  }, [current]);
+  useEffect(() => {
+    if (current === null || fittedFor.current === current || nodes.length === 0) return;
     let alive = true;
     const tryFit = (attempt: number) => {
-      if (!alive) return;
-      const ns = getNodes();
-      if (ns.length > 0 && ns.every(measured)) {
-        void fitView({ padding: 0.2, duration: 250 });
+      if (!alive || fittedFor.current === current) return;
+      const dom = document.querySelectorAll(".react-flow__node");
+      const ready =
+        dom.length >= nodes.length &&
+        [...dom].every((el) => el.getBoundingClientRect().width > 0);
+      if (!ready) {
+        if (attempt < 1200) requestAnimationFrame(() => tryFit(attempt + 1));
         return;
       }
-      if (attempt < 90) requestAnimationFrame(() => tryFit(attempt + 1));
+      fittedFor.current = current;
+      const ns = getNodes();
+      const x0 = Math.min(...ns.map((n) => n.position.x));
+      const y0 = Math.min(...ns.map((n) => n.position.y));
+      const x1 = Math.max(...ns.map((n) => n.position.x + (n.measured?.width ?? 240)));
+      const y1 = Math.max(...ns.map((n) => n.position.y + (n.measured?.height ?? 100)));
+      const pane = document.querySelector(".react-flow__pane")?.getBoundingClientRect();
+      const fitZoom = Math.min(
+        ((pane?.width ?? 1200) * 0.8) / Math.max(x1 - x0, 1),
+        ((pane?.height ?? 800) * 0.8) / Math.max(y1 - y0, 1),
+      );
+      if (fitZoom >= LOAD_FIT_MIN) {
+        void fitView({ padding: 0.2, minZoom: MIN_ZOOM, duration: 250 });
+      } else {
+        const start = ns.find((n) => n.type === "start") ?? ns[0];
+        void setCenter(start.position.x + 120, start.position.y + 180, {
+          zoom: READ_ZOOM,
+          duration: 250,
+        });
+      }
     };
     const raf = requestAnimationFrame(() => tryFit(0));
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
     };
-  }, [current, fitView, getNodes]);
+  }, [current, nodes, fitView, getNodes, setCenter]);
 
-  // 诊断定位 / select_node / 新节点滚入视野：rAF 重试等目标节点渲染并测量
+  // 诊断定位 / select_node / 新节点滚入视野：同样以 DOM 渲染就绪为准（measured 无可靠触发源）
   useEffect(() => {
     if (!focusReq) return;
     let alive = true;
     const tryCenter = (attempt: number) => {
       if (!alive) return;
       const n = getNode(focusReq.id);
-      if (n && measured(n)) {
-        const w = n.measured?.width ?? 240;
-        const h = n.measured?.height ?? 100;
-        void setCenter(n.position.x + w / 2, n.position.y + h / 2, { zoom: 1.1, duration: 300 });
+      const el = document.querySelector(
+        `.react-flow__node[data-id="${CSS.escape(focusReq.id)}"]`,
+      );
+      if (n && el && el.getBoundingClientRect().width > 0) {
+        const zoom = getZoom() || 1;
+        const rect = el.getBoundingClientRect();
+        void setCenter(n.position.x + rect.width / zoom / 2, n.position.y + rect.height / zoom / 2, {
+          zoom: READ_ZOOM,
+          duration: 300,
+        });
         return;
       }
-      if (attempt < 90) requestAnimationFrame(() => tryCenter(attempt + 1));
+      if (attempt < 600) requestAnimationFrame(() => tryCenter(attempt + 1));
     };
     const raf = requestAnimationFrame(() => tryCenter(0));
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
     };
-  }, [focusReq, getNode, setCenter]);
+  }, [focusReq, getNode, setCenter, getZoom]);
 
   // 受控模式：change 事件回流到领域 store（位置独立存放；remove 走 removeNode）
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
@@ -160,9 +193,10 @@ function Canvas() {
           if (node.type === "group") expandGroup(node.id);
         }}
         defaultEdgeOptions={defaultEdgeOptions}
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={{ padding: 0.2, minZoom: MIN_ZOOM }}
         colorMode="dark"
         zoomOnDoubleClick={false}
+        minZoom={MIN_ZOOM}
         nodesConnectable={false}
         edgesFocusable={false}
         deleteKeyCode={["Delete", "Backspace"]}
