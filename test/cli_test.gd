@@ -18,6 +18,7 @@ func _init() -> void:
 	_test_build_anchors()
 	_test_build_golden_scene1()
 	_test_build_spec()
+	_test_scan_txt_only()
 
 	print("CLI_TEST_DONE ok=", _ok)
 	quit(0 if _ok else 1)
@@ -351,3 +352,18 @@ func _test_build_spec() -> void:
 		"IF/ELSE_IF/ELSE 的跳转下标应标 structural")
 	_assert(spec_map.has("OPTION_END") and (spec_map["OPTION_END"] as Array).is_empty(),
 		"OPTION_END 无参数应输出空数组")
+
+
+## 目录扫描只认 .txt：编辑器 sidecar（.graph.json）等邻接文件不得入编译
+func _test_scan_txt_only() -> void:
+	var dir := "user://cli_test_scan"
+	DirAccess.make_dir_recursive_absolute(dir)
+	for name in ["alpha.txt", "alpha.graph.json", "notes.md"]:
+		var f := FileAccess.open(dir.path_join(name), FileAccess.WRITE)
+		f.store_string("# t\n")
+		f.close()
+	var names := DialogueImporter.scan_script_names(dir)
+	_assert(names.size() == 1 and names[0] == "alpha", "扫描应只含 alpha.txt，实际: %s" % [names])
+	for name in ["alpha.txt", "alpha.graph.json", "notes.md"]:
+		DirAccess.remove_absolute(dir.path_join(name))
+	DirAccess.remove_absolute(dir)
