@@ -32,3 +32,6 @@ jobs:
 
       - name: Executor semantics test
         run: godot --headless --path . -s test/executor_test.gd
+
+      - name: CLI tooling test
+        run: godot --headless --path . -s test/cli_test.gd

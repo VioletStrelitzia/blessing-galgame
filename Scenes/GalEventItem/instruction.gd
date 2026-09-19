@@ -141,6 +141,14 @@ const _SPEC: Dictionary = {
 	Head.WAIT: [["duration", _T.FLOAT, 0.0, ""]],
 }
 
+## 结构回填字段（编译期跳转表，dump 时消解为图结构，不作为可编辑参数暴露）：head → params 下标数组
+const _STRUCTURAL_PARAMS: Dictionary = {
+	Head.OPTION: [2, 3, 4, 5],
+	Head.IF: [1],
+	Head.ELSE_IF: [1, 2],
+	Head.ELSE: [0],
+}
+
 
 ## 类型化构造：编译器产出即定型。缺省补默认值；超产/类型不符报错并保持默认（产物损毁护栏）
 func _init(head_: Head = Head.BLANK, typed: Array = []) -> void:
