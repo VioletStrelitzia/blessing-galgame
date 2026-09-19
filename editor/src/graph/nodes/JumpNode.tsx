@@ -5,7 +5,7 @@ import { NodeShell } from "./shell";
 export function JumpNode({ data, selected }: NodeProps<FlowNode>) {
   if (data.node.kind !== "jump") return null;
   return (
-    <NodeShell kind="jump" selected={selected}>
+    <NodeShell kind="jump" selected={selected} diags={data.diags}>
       <Handle type="target" position={Position.Top} />
       <div className="font-mono text-xs">
         <span className="text-zinc-500">→ </span>

@@ -36,6 +36,7 @@ async function respond(c: Context, fn: () => Promise<unknown>) {
 }
 
 app.get("/api/spec", async (c) => c.json(await source.spec()));
+app.get("/api/mode", (c) => c.json({ mode: fixturesMode ? "fixtures" : "live", dev: devMode }));
 app.get("/api/graphs", async (c) => c.json(await source.listGraphs()));
 app.get("/api/graph/:script", async (c) => {
   const script = c.req.param("script");

@@ -1,21 +1,20 @@
-// spec 驱动的只读属性面板：inst 按 spec.json 参数序展示（结构字段隐藏）；
-// dialogue 展示原文/显示文本/锚点/prev/post（指令经 emitInst 还原为文本形态）。
+// 可编辑属性面板（spec 驱动）：dialogue 角色/台词/锚点/前后指令槽；inst 参数表单；
+// option_group/cond 分支编辑器；jump 目标（剧本 datalist）；comment 多行文本。
 
-import { emitInst } from "../../shared/emit";
-import type { GraphNode, InstPayload } from "../../shared/graph";
-import { useEditor } from "../store";
+import type { GraphNode } from "../../shared/graph";
+import {
+  patchComment,
+  patchDialogue,
+  patchInstParams,
+  patchJump,
+  removeNodeById,
+} from "../state/edit";
+import { useEditor } from "../state/store";
+import { Datalist, Field, SmallButton, TextArea, TextInput } from "../components/controls";
+import { CondEditor, OptionsEditor } from "./BranchEditors";
+import { InstParamsForm } from "./InstParamsForm";
 import { Panel } from "./Panel";
-
-function Row({ name, value, dim }: { name: string; value: string; dim?: boolean }) {
-  return (
-    <div className="grid grid-cols-[96px_1fr] gap-2 px-2 py-1 text-xs">
-      <span className="font-mono text-zinc-500">{name}</span>
-      <span className={`font-mono break-all ${dim ? "text-zinc-600" : "text-zinc-200"}`}>
-        {value}
-      </span>
-    </div>
-  );
-}
+import { SlotEditor } from "./SlotEditor";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -28,144 +27,130 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function InstView({ inst }: { inst: InstPayload }) {
-  const spec = useEditor((s) => s.spec);
-  const params = spec?.spec[inst.head] ?? [];
-  const visible = params.filter((p) => !p.structural);
+function DeleteButton({ node }: { node: GraphNode }) {
+  if (node.kind === "start" || node.kind === "end") return null;
   return (
-    <>
-      {visible.map((p) => {
-        const v = inst.params[p.name];
-        return (
-          <Row
-            key={p.name}
-            name={p.name}
-            value={v === undefined ? `${fmtDefault(p.default)}（默认）` : String(v)}
-            dim={v === undefined}
-          />
-        );
-      })}
-      {visible.length === 0 && <div className="px-2 py-1 text-xs text-zinc-600">无参数</div>}
-    </>
-  );
-}
-
-function fmtDefault(d: unknown): string {
-  return typeof d === "string" || typeof d === "number" || typeof d === "boolean"
-    ? String(d)
-    : "[]";
-}
-
-function ParamMeta({ head }: { head: string }) {
-  const spec = useEditor((s) => s.spec);
-  const params = spec?.spec[head] ?? [];
-  return (
-    <div className="px-2 py-1 font-mono text-[10px] leading-relaxed text-zinc-600">
-      {params
-        .filter((p) => !p.structural)
-        .map((p) => `${p.name}: ${p.type}${p.role ? ` · ${p.role}` : ""}`)
-        .join("\n")}
+    <div className="mt-4 border-t border-white/8 px-2 pt-3">
+      <SmallButton
+        danger
+        title="删除节点（Delete / Backspace）"
+        onClick={() => removeNodeById(node.id)}
+      >
+        删除节点
+      </SmallButton>
     </div>
   );
 }
 
-function NodeView({ node }: { node: GraphNode }) {
-  const graph = useEditor((s) => s.graph);
-  const spec = useEditor((s) => s.spec);
-
-  if (node.kind === "dialogue") {
-    return (
-      <>
-        <Section title="对话">
-          <Row name="角色" value={node.character || "（旁白）"} dim={!node.character} />
-          <div className="px-2 py-1 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-zinc-200">
-            {node.text}
-          </div>
-          {node.display_text !== node.text && (
-            <div className="px-2 py-1 text-xs leading-relaxed break-all whitespace-pre-wrap text-zinc-400">
-              {node.display_text}
-            </div>
-          )}
-        </Section>
+function DialogueView({ node }: { node: GraphNode & { kind: "dialogue" } }) {
+  return (
+    <>
+      <Section title="对话">
+        <Field label="角色">
+          <TextInput
+            value={node.character}
+            placeholder="（旁白）"
+            onChange={(v) => patchDialogue(node.id, { character: v })}
+          />
+        </Field>
+        <Field label="台词">
+          <TextArea
+            mono
+            rows={5}
+            value={node.text}
+            onChange={(v) => patchDialogue(node.id, { text: v })}
+          />
+        </Field>
         {node.anchors.length > 0 && (
-          <Section title={`锚点 · ${node.anchors.length}`}>
+          <div className="flex flex-wrap gap-1 px-2 pb-1">
             {node.anchors.map((a, i) => (
-              <Row
+              <span
                 key={i}
-                name={`@${a.index}`}
-                value={`${a.head} ${Object.entries(a.params)
-                  .map(([k, v]) => `${k}=${String(v)}`)
-                  .join(" ")}`}
-              />
+                className="rounded border border-white/10 bg-white/[0.04] px-1 font-mono text-[10px] leading-4 text-zinc-500"
+                title="锚点为文本派生信息，修改台词后由引擎重建"
+              >
+                @{a.index} {a.head}
+              </span>
             ))}
-          </Section>
+          </div>
         )}
-        {node.prev.length > 0 && (
-          <Section title={`前指令 · ${node.prev.length}`}>
-            {node.prev.map((ins, i) => (
-              <div key={i} className="px-2 py-0.5 font-mono text-xs text-zinc-300">
-                &lt; {spec ? (emitInst(ins, spec) ?? ins.head) : ins.head}
-              </div>
-            ))}
-          </Section>
-        )}
-        {node.post.length > 0 && (
-          <Section title={`后指令 · ${node.post.length}`}>
-            {node.post.map((ins, i) => (
-              <div key={i} className="px-2 py-0.5 font-mono text-xs text-zinc-300">
-                &gt; {spec ? (emitInst(ins, spec) ?? ins.head) : ins.head}
-              </div>
-            ))}
-          </Section>
-        )}
-      </>
-    );
-  }
+      </Section>
+      <Section title={`前指令 · ${node.prev.length}`}>
+        <SlotEditor dialogueId={node.id} slot="prev" list={node.prev} />
+      </Section>
+      <Section title={`后指令 · ${node.post.length}`}>
+        <SlotEditor dialogueId={node.id} slot="post" list={node.post} />
+      </Section>
+    </>
+  );
+}
+
+function NodeView({ node }: { node: GraphNode }) {
+  const scripts = useEditor((s) => s.scripts);
+
+  if (node.kind === "dialogue") return <DialogueView node={node} />;
 
   if (node.kind === "inst") {
     return (
-      <>
-        <Section title="指令">
-          <Row name="head" value={node.head} />
-        </Section>
-        <Section title="参数">
-          <InstView inst={node} />
-          <ParamMeta head={node.head} />
-        </Section>
-      </>
+      <Section title="指令">
+        <div className="mb-2 px-2 font-mono text-xs text-accent">{node.head}</div>
+        <InstParamsForm
+          head={node.head}
+          params={node.params}
+          onChange={(params) => patchInstParams(node.id, params)}
+        />
+      </Section>
     );
   }
 
   if (node.kind === "jump") {
     return (
       <Section title="跳转">
-        <Row name="target" value={node.target} />
+        <Field label="target">
+          <TextInput
+            mono
+            value={node.target}
+            list="jump-targets"
+            onChange={(v) => patchJump(node.id, v)}
+          />
+          <Datalist id="jump-targets" options={[...scripts, "main_menu"]} />
+        </Field>
       </Section>
     );
   }
 
-  if (node.kind === "option_group" || node.kind === "cond") {
-    const outs = (graph?.edges ?? []).filter(
-      (e) => e.from === node.id && (e.kind === "option" || e.kind === "branch"),
-    );
+  if (node.kind === "option_group") {
     return (
-      <Section title={node.kind === "option_group" ? "选项" : "分支"}>
-        {outs.map((e, i) => (
-          <div key={i} className="px-2 py-1 text-xs">
-            <span className="text-zinc-200">{e.text ?? (e.cond ? `if ${e.cond}` : "else")}</span>
-            {e.text && e.cond && (
-              <span className="ml-2 font-mono text-[10px] text-warn">if:{e.cond}</span>
-            )}
-            <span className="ml-2 font-mono text-[10px] text-zinc-600">→ {e.to}</span>
-          </div>
-        ))}
+      <Section title="选项">
+        <OptionsEditor nodeId={node.id} />
+      </Section>
+    );
+  }
+
+  if (node.kind === "cond") {
+    return (
+      <Section title="分支">
+        <CondEditor nodeId={node.id} />
+      </Section>
+    );
+  }
+
+  if (node.kind === "comment") {
+    return (
+      <Section title="注释">
+        <Field label="text">
+          <TextArea mono rows={4} value={node.text} onChange={(v) => patchComment(node.id, v)} />
+        </Field>
+        <div className="px-2 font-mono text-[10px] text-zinc-600">
+          before: {node.before ?? "（文件头）"}
+        </div>
       </Section>
     );
   }
 
   return (
     <Section title="节点">
-      <Row name="kind" value={node.kind} />
+      <div className="px-2 py-1 font-mono text-xs text-zinc-500">{node.kind}（不可编辑）</div>
     </Section>
   );
 }
@@ -178,7 +163,13 @@ export function Inspector() {
   return (
     <Panel title="属性" className="h-full">
       {!node && <div className="px-2 py-1 text-xs text-zinc-600">点击画布节点查看属性</div>}
-      {node && <NodeView node={node} />}
+      {node && (
+        <>
+          <div className="px-2 pt-2 font-mono text-[10px] text-zinc-600">id: {node.id}</div>
+          <NodeView node={node} />
+          <DeleteButton node={node} />
+        </>
+      )}
     </Panel>
   );
 }

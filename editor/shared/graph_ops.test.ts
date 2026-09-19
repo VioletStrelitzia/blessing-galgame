@@ -23,6 +23,7 @@ import {
   updateComment,
   updateDialogue,
   updateInstParams,
+  updateJump,
   updateOption,
 } from "./graph_ops";
 
@@ -325,6 +326,15 @@ describe("removeNode", () => {
 });
 
 describe("updateDialogue / updateInstParams / setSlot", () => {
+  it("updateJump：替换跳转目标；空目标与类型不符报错", () => {
+    const g0 = linearGraph();
+    const g1 = appendEnd(g0, makeJump("demo_scene2", "j"));
+    const g = updateJump(g1, "j", "main_menu");
+    expect(g.nodes.find((n) => n.id === "j")).toMatchObject({ kind: "jump", target: "main_menu" });
+    expect(() => updateJump(g1, "j", "  ")).toThrow("不能为空");
+    expect(() => updateJump(g1, "a", "x")).toThrow("不是 jump");
+  });
+
   it("updateDialogue：局部补丁；改 text 时派生字段失效", () => {
     const g0 = linearGraph();
     const g = updateDialogue(g0, "a", { character: "乙" });

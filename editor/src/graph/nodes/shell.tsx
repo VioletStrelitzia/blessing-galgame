@@ -1,13 +1,16 @@
 import type { ReactNode } from "react";
+import type { DiagBadge } from "../toFlow";
 
 export function NodeShell({
   kind,
   selected,
+  diags,
   className,
   children,
 }: {
   kind: string;
   selected?: boolean;
+  diags?: DiagBadge;
   className?: string;
   children: ReactNode;
 }) {
@@ -20,6 +23,18 @@ export function NodeShell({
       <span className="absolute -top-2 left-2 rounded-full border border-accent/40 bg-base px-1.5 font-mono text-[10px] leading-4 text-accent">
         {kind}
       </span>
+      {diags && (diags.error > 0 || diags.warning > 0) && (
+        <span
+          className={`absolute -top-2 right-2 rounded-full border px-1.5 font-mono text-[10px] leading-4 ${
+            diags.error > 0
+              ? "border-danger/60 bg-danger/15 text-danger"
+              : "border-warn/60 bg-warn/15 text-warn"
+          }`}
+        >
+          {diags.error > 0 ? `E${diags.error}` : ""}
+          {diags.warning > 0 ? `W${diags.warning}` : ""}
+        </span>
+      )}
       {children}
     </div>
   );

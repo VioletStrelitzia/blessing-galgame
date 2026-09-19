@@ -1,10 +1,10 @@
-import { useEditor } from "../store";
+import { openScript } from "../state/io";
+import { useEditor } from "../state/store";
 import { Panel } from "./Panel";
 
 export function ScriptList() {
   const scripts = useEditor((s) => s.scripts);
   const current = useEditor((s) => s.current);
-  const openScript = useEditor((s) => s.openScript);
 
   return (
     <Panel title="剧本" className="border-b border-white/8">

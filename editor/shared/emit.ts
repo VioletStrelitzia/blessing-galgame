@@ -5,18 +5,8 @@
 // comment 节点不参与边，发射 `# text` 行于其 before 节点首行之前（before=null 放文件头）。
 
 import type { BgalsGraph, CommentNode, GraphEdge, GraphNode, InstPayload, Params } from "./graph";
+import { STRUCTURAL_HEADS } from "./graph";
 import type { BgalsSpec, SpecParam } from "./spec";
-
-// 结构指令由图结构承载，不作为指令行发射
-const STRUCTURAL_HEADS = new Set([
-  "BLANK",
-  "OPTION",
-  "OPTION_END",
-  "IF",
-  "ELSE_IF",
-  "ELSE",
-  "END_IF",
-]);
 
 function fmtValue(v: Params[string]): string {
   if (typeof v === "boolean") return v ? "true" : "false";

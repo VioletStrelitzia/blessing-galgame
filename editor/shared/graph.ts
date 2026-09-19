@@ -83,6 +83,18 @@ export type GraphNode =
 
 export type NodeKind = GraphNode["kind"];
 
+// 与引擎 _STRUCTURAL_PARAMS 同源的 Schema 固有知识：结构指令由图结构承载，
+// 不进入指令表单/发射；inst 工厂与对话 prev/post 槽编辑共用此排除集。
+export const STRUCTURAL_HEADS = new Set([
+  "BLANK",
+  "OPTION",
+  "OPTION_END",
+  "IF",
+  "ELSE_IF",
+  "ELSE",
+  "END_IF",
+]);
+
 export type EdgeKind = "seq" | "option" | "branch" | "jump";
 
 export interface GraphEdge {

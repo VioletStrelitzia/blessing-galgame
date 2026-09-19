@@ -229,6 +229,13 @@ export function setSlot(
   );
 }
 
+export function updateJump(graph: BgalsGraph, id: string, target: string): BgalsGraph {
+  const node = requireNode(graph, id);
+  if (node.kind !== "jump") fail(`节点 ${id} 不是 jump（实际 ${node.kind}）`);
+  if (!target.trim()) fail("jump 目标不能为空");
+  return replaceNode(graph, { ...node, target });
+}
+
 export function makeDialogue(id = nanoid(8)): DialogueNode {
   return {
     id,
