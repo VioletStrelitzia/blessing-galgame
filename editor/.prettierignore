@@ -1,0 +1,3 @@
+dist/
+# fixtures 是引擎 CLI 的原始产物快照，保持原样（含 tab 缩进）
+public/fixtures/

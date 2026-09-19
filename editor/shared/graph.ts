@@ -63,10 +63,37 @@ export interface JumpNode {
   target: string;
 }
 
+/** 编辑器扩展节点：注释。不参与边，dump 不产生；before = 附着目标节点 id，null = 文件头 */
+export interface CommentNode {
+  id: string;
+  kind: "comment";
+  text: string;
+  before: string | null;
+}
+
 export type GraphNode =
-  StartNode | EndNode | InstNode | DialogueNode | OptionGroupNode | CondNode | JumpNode;
+  | StartNode
+  | EndNode
+  | InstNode
+  | DialogueNode
+  | OptionGroupNode
+  | CondNode
+  | JumpNode
+  | CommentNode;
 
 export type NodeKind = GraphNode["kind"];
+
+// 与引擎 _STRUCTURAL_PARAMS 同源的 Schema 固有知识：结构指令由图结构承载，
+// 不进入指令表单/发射；inst 工厂与对话 prev/post 槽编辑共用此排除集。
+export const STRUCTURAL_HEADS = new Set([
+  "BLANK",
+  "OPTION",
+  "OPTION_END",
+  "IF",
+  "ELSE_IF",
+  "ELSE",
+  "END_IF",
+]);
 
 export type EdgeKind = "seq" | "option" | "branch" | "jump";
 

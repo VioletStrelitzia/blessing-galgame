@@ -91,7 +91,7 @@ describe("emitInst", () => {
 });
 
 describe("emitGraph", () => {
-  it("prev/post 以 </> 前缀行附着对话前后", () => {
+  it("prev/post 以 </> 前缀行附着对话前后，lineMap 覆盖全部产出行", () => {
     const graph: BgalsGraph = {
       format: "bgals-graph/1",
       compiler: "test",
@@ -110,7 +110,10 @@ describe("emitGraph", () => {
         { from: "n0", to: "end", kind: "seq" },
       ],
     };
-    expect(emitGraph(graph, spec)).toBe("< wait 0.5\n甲: 台词\n> sfx stop fade:0.5\n");
+    const { text, lineMap } = emitGraph(graph, spec);
+    expect(text).toBe("< wait 0.5\n甲: 台词\n> sfx stop fade:0.5\n");
+    expect(lineMap["n0"]).toEqual({ from: 1, to: 3 });
+    expect(lineMap["start"]).toBeUndefined();
   });
 
   it("选项体内套条件分支的缩进嵌套；空选项体直接汇合", () => {
@@ -136,7 +139,7 @@ describe("emitGraph", () => {
         { from: "n3", to: "end", kind: "seq" },
       ],
     };
-    expect(emitGraph(graph, spec)).toBe(
+    expect(emitGraph(graph, spec).text).toBe(
       "* 去\n    if x >= 1\n        甲: 你好\n    else\n        旁白\n* 不去\n",
     );
   });
@@ -166,13 +169,13 @@ describe("emitGraph", () => {
         { from: "n4", to: "end", kind: "seq" },
       ],
     };
-    expect(emitGraph(graph, spec)).toBe(
+    expect(emitGraph(graph, spec).text).toBe(
       "if x >= 1\n    一\nelif x >= 0\n    二\nelse\n    三\n汇合\n",
     );
   });
 
   it("demo_scene1 fixture 发射含关键行", () => {
-    const out = emitGraph(demo1, spec);
+    const out = emitGraph(demo1, spec).text;
     expect(out).toContain("bg demo_stage\n");
     expect(out).toContain("music demo_bgm\n");
     expect(out).toContain("char 0 setup demo_char_a 0.3,0.95\n");
@@ -191,7 +194,7 @@ describe("emitGraph", () => {
   });
 
   it("demo_scene3 fixture：scene/trans/音频子动作", () => {
-    const out = emitGraph(demo3, spec);
+    const out = emitGraph(demo3, spec).text;
     expect(out).toContain("scene mount ui 演出层 res://Scenes/OptionUI/option_ui.tscn time:0.5\n");
     expect(out).toContain("trans out time:0.5\n");
     expect(out).toContain("trans in time:0.5\n");
@@ -203,5 +206,90 @@ describe("emitGraph", () => {
     expect(out).toContain("music demo_bgm_2 fade_in:2 fade_out:0.3\n");
     expect(out).toContain("sfx volume demo_bgm 0.4 fade:1.5\n");
     expect(out).toContain("char 0 move 0.7,0.95 time:0.5 wait:true\n");
+  });
+
+  it("comment：before=null 放文件头，否则在目标节点首行之前（同缩进）", () => {
+    const graph: BgalsGraph = {
+      format: "bgals-graph/1",
+      compiler: "test",
+      script: "t",
+      nodes: [
+        { id: "start", kind: "start" },
+        { id: "c0", kind: "comment", text: "文件头注", before: null },
+        { id: "g", kind: "option_group" },
+        dialogue("n1", "", "体内"),
+        { id: "c1", kind: "comment", text: "组前注", before: "g" },
+        { id: "c2", kind: "comment", text: "体内注", before: "n1" },
+        { id: "end", kind: "end" },
+      ],
+      edges: [
+        { from: "start", to: "g", kind: "seq" },
+        { from: "g", to: "n1", kind: "option", text: "去" },
+        { from: "g", to: "end", kind: "option", text: "不去" },
+        { from: "n1", to: "end", kind: "seq" },
+      ],
+    };
+    const { text, lineMap } = emitGraph(graph, spec);
+    expect(text).toBe("# 文件头注\n# 组前注\n* 去\n    # 体内注\n    体内\n* 不去\n");
+    expect(lineMap["c0"]).toEqual({ from: 1, to: 1 });
+    expect(lineMap["c1"]).toEqual({ from: 2, to: 2 });
+    expect(lineMap["c2"]).toEqual({ from: 4, to: 4 });
+    expect(lineMap["g"]).toEqual({ from: 3, to: 6 });
+    expect(lineMap["n1"]).toEqual({ from: 5, to: 5 });
+  });
+
+  it("comment：附着目标缺失或不可达时降级到文件头/文件尾，不丢数据", () => {
+    const graph: BgalsGraph = {
+      format: "bgals-graph/1",
+      compiler: "test",
+      script: "t",
+      nodes: [
+        { id: "start", kind: "start" },
+        dialogue("n0", "", "正文"),
+        { id: "c0", kind: "comment", text: "目标已不存在", before: "ghost" },
+        { id: "c1", kind: "comment", text: "目标不可达", before: "lost" },
+        dialogue("lost", "", "孤悬"),
+        { id: "end", kind: "end" },
+      ],
+      edges: [
+        { from: "start", to: "n0", kind: "seq" },
+        { from: "n0", to: "end", kind: "seq" },
+      ],
+    };
+    const { text, lineMap } = emitGraph(graph, spec);
+    expect(text).toBe("# 目标已不存在\n正文\n# 目标不可达\n");
+    expect(lineMap["lost"]).toBeUndefined();
+  });
+
+  it("lineMap：fixture 关键节点的行号与文本吻合", () => {
+    const { text, lineMap } = emitGraph(demo1, spec);
+    const lines = text.split("\n");
+    const span = (id: string) => lines.slice(lineMap[id].from - 1, lineMap[id].to).join("\n");
+    expect(span("n0")).toBe("bg demo_stage");
+    expect(span("n22").trim()).toBe("jump main_menu");
+    expect(span("n12")).toContain("* 前往第二幕");
+    expect(span("n12")).toContain("* 留在这里 if:affection >= 1");
+    expect(span("n17")).toContain("if affection >= 1 and affection < 100");
+  });
+
+  it("空分支体不产生多余缩进块；start/end 按 kind 定位而非字面 id", () => {
+    const graph: BgalsGraph = {
+      format: "bgals-graph/1",
+      compiler: "test",
+      script: "t",
+      nodes: [
+        { id: "s0", kind: "start" },
+        { id: "g", kind: "option_group" },
+        dialogue("n1", "", "尾部"),
+        { id: "e0", kind: "end" },
+      ],
+      edges: [
+        { from: "s0", to: "g", kind: "seq" },
+        { from: "g", to: "n1", kind: "option", text: "甲" },
+        { from: "g", to: "n1", kind: "option", text: "乙" },
+        { from: "n1", to: "e0", kind: "seq" },
+      ],
+    };
+    expect(emitGraph(graph, spec).text).toBe("* 甲\n* 乙\n尾部\n");
   });
 });

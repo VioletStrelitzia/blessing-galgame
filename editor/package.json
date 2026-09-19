@@ -17,6 +17,7 @@
     "@hono/node-server": "^2.1.1",
     "@xyflow/react": "^12.11.6",
     "hono": "^4.13.8",
+    "nanoid": "^5.1.16",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "zustand": "^5.0.15"

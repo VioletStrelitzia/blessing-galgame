@@ -18,5 +18,12 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
     },
   },
+  {
+    // 仓库根的一次性 Node 脚本（E2E 驱动等）
+    files: ["*.mjs"],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
   prettier,
 );

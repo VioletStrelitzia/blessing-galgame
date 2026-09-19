@@ -1,0 +1,15 @@
+{
+	"audio": {
+		"demo_bgm": "Resources/audio/demo_bgm.wav",
+		"demo_bgm_2": "Resources/audio/demo_bgm_2.wav"
+	},
+	"texture": {
+		"demo_stage": "Resources/image/生成电影概念图.png",
+		"demo_stage_night": "Resources/image/menu_background.jpg",
+		"demo_char_a": "Resources/image/demo_char_a.svg",
+		"demo_char_b": "Resources/image/demo_char_b.svg",
+		"blessing_logo": "Resources/image/blessing.svg",
+		"our_first_game": "Resources/image/our first game.svg"
+	},
+	"script": {}
+}

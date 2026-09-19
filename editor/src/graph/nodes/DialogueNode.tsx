@@ -6,7 +6,7 @@ export function DialogueNode({ data, selected }: NodeProps<FlowNode>) {
   if (data.node.kind !== "dialogue") return null;
   const n = data.node;
   return (
-    <NodeShell kind="dialogue" selected={selected} className="w-[280px]">
+    <NodeShell kind="dialogue" selected={selected} diags={data.diags} className="w-[280px]">
       <Handle type="target" position={Position.Top} />
       {n.character && <div className="mb-0.5 text-xs font-medium text-accent">{n.character}</div>}
       <div className="line-clamp-4 text-sm leading-relaxed text-zinc-200">{n.display_text}</div>

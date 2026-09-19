@@ -8,7 +8,7 @@ const PAD_TOP = 8;
 export function OptionGroupNode({ data, selected }: NodeProps<FlowNode>) {
   if (data.node.kind !== "option_group") return null;
   return (
-    <NodeShell kind="option" selected={selected} className="w-[240px]">
+    <NodeShell kind="option" selected={selected} diags={data.diags} className="w-[240px]">
       <Handle type="target" position={Position.Top} />
       <div>
         {data.rows.map((r) => (

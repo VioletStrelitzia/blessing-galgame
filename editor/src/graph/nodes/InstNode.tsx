@@ -8,7 +8,7 @@ export function InstNode({ data, selected }: NodeProps<FlowNode>) {
   const n = data.node;
   const entries = Object.entries(n.params);
   return (
-    <NodeShell kind="inst" selected={selected} className="w-[240px]">
+    <NodeShell kind="inst" selected={selected} diags={data.diags} className="w-[240px]">
       <Handle type="target" position={Position.Top} />
       <div className="font-mono text-xs text-accent">{n.head}</div>
       {entries.length > 0 && (
