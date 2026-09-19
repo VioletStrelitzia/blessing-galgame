@@ -68,9 +68,20 @@ npm run build && npm run dev:server
     编辑态 nodrag、画布 `zoomOnDoubleClick` 已关闭；聚合组摘要不可行内编辑（点击仍展开）。
 - **视口**：剧本载入/切换后等全部节点测量完成（rAF 轮询）再 `fitView(padding 0.2)`；
   插入/追加的新节点、诊断定位、select_node 均经 focusReq → setCenter 滚入视野。
-- **聚合视图**（纯视图层，不动领域图）：同 kind（dialogue/inst）连续 seq 链长度 > 4 折叠为
+- **聚合视图**（纯视图层，不动领域图）：同 kind（dialogue/inst）连续 seq 链长度 ≥ 4 折叠为
   group 节点（胶囊标签 `DIALOGUE ×12` + 首 2 尾 1 摘要 + 「展开其余 N 条」）；带诊断/选中节点
   强制可见；展开链首节点左上角有「收起」按钮；触及组的合成边不显示「+」。expandedGroups 随剧本切换清空。
+  展开时成员从组当前位置垂直堆叠（间距 130，`stackPositions`），收起回到堆叠起点，几何稳定。
+
+## 快捷键
+
+| 键                             | 行为                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------- |
+| Ctrl+S                         | 保存                                                                            |
+| Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y | 撤销 / 重做                                                                     |
+| Delete / Backspace             | 删除选中节点                                                                    |
+| ArrowDown / ArrowUp            | 选中节点的下游/上游导航（`flowNeighbor`，命中即选中并居中；折叠内目标自动显形） |
+| 双击 dialogue / comment 节点   | 行内编辑（Enter 提交、Shift+Enter 换行、Esc 取消、失焦提交）                    |
 
 ## 视觉（Archify「midnight console」词汇）
 

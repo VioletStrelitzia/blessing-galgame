@@ -4,8 +4,15 @@
 
 import type { BgalsGraph, GraphEdge, GraphNode } from "../../shared/graph";
 
-/** 链长超过该值才折叠 */
+/** 链长达到该值即折叠（首 2 + 尾 1 + 展开其余 N 条） */
 export const COLLAPSE_THRESHOLD = 4;
+
+/** 展开聚合链时的成员位置：从组节点当前位置垂直堆叠（x 对齐，固定间距） */
+export const EXPAND_GAP = 130;
+
+export function stackPositions(base: { x: number; y: number }, count: number, gap = EXPAND_GAP) {
+  return Array.from({ length: count }, (_, i) => ({ x: base.x, y: base.y + i * gap }));
+}
 
 export interface GroupViewNode {
   id: string; // group:<首节点 id>
@@ -83,7 +90,7 @@ export function collapseRuns(
       run.push(nxt);
       inRun.add(nxtId);
     }
-    if (run.length > COLLAPSE_THRESHOLD && !expanded.has(groupIdOf(run[0].id))) {
+    if (run.length >= COLLAPSE_THRESHOLD && !expanded.has(groupIdOf(run[0].id))) {
       runByHead.set(run[0].id, run);
     }
   }

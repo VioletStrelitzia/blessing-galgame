@@ -122,6 +122,30 @@ export function sweepOrphans(graph: BgalsGraph): BgalsGraph {
   return { ...graph, nodes, edges };
 }
 
+/**
+ * 方向键导航的上下游邻居：
+ * 下一个 = seq 出边目标；无 seq 出边时（option_group/cond）取汇合点；jump/end 无下一个。
+ * 上一个 = 入边源（seq 优先，否则 option/branch 源即组/条件节点）；start 无上一个。
+ * 无法导航返回 null。
+ */
+export function flowNeighbor(graph: BgalsGraph, id: string, dir: 1 | -1): string | null {
+  const idx = flowIndex(graph);
+  const node = idx.nodes.get(id);
+  if (!node) return null;
+  if (dir === 1) {
+    if (node.kind === "jump" || node.kind === "end") return null;
+    const si = idx.seqOut.get(id);
+    if (si !== undefined) return graph.edges[si].to;
+    if (node.kind === "option_group" || node.kind === "cond") return findMerge(graph, id) ?? null;
+    return null;
+  }
+  if (node.kind === "start") return null;
+  const inc = idx.incoming.get(id) ?? [];
+  if (inc.length === 0) return null;
+  const seqInc = inc.find((i) => graph.edges[i].kind === "seq");
+  return graph.edges[seqInc ?? inc[0]].from;
+}
+
 export function fail(message: string): never {
   throw new Error(message);
 }

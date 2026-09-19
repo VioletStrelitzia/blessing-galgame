@@ -31,8 +31,7 @@ export function RunGroupNode({ data }: NodeProps<FlowNode>) {
     <div
       style={{ borderColor: color, backgroundColor: `color-mix(in srgb, ${color} 10%, #0F172A)` }}
       className="relative w-[260px] cursor-pointer rounded-md border-[1.5px] px-3 py-2"
-      title="点击展开该链"
-      onClick={() => expandGroup(g.id)}
+      title="点击展开该链（点击空白处经 React Flow onNodeClick 处理，拖动不触发）"
     >
       <Handle type="target" position={Position.Top} />
       <span
@@ -50,7 +49,7 @@ export function RunGroupNode({ data }: NodeProps<FlowNode>) {
         className="nodrag my-1 w-full rounded-sm border border-grid bg-panel px-2 py-0.5 font-mono text-[10px] text-mut transition-colors hover:border-accent hover:text-accent"
         onClick={(e) => {
           e.stopPropagation();
-          expandGroup(g.id);
+          expandGroup(g.id, g.runIds);
         }}
       >
         … 展开其余 {g.hiddenCount} 条
