@@ -53,7 +53,7 @@ export function toFlow(
       (isGroupNode(n) ? positions.get(n.runIds[0]) : undefined) ??
       ({ x: 0, y: 0 } as const),
     selectable: !isGroupNode(n),
-    draggable: !isGroupNode(n),
+    draggable: true, // 组节点可拖（位置以 group:xxx 键写入，读取侧兼容）
     data: { node: n, rows: [] as BranchRow[], diags: nodeDiags[n.id] },
   }));
 

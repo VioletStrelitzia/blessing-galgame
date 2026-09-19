@@ -10,6 +10,7 @@ import {
   type NodeTypes,
 } from "@xyflow/react";
 import { useEffect, useMemo, useRef } from "react";
+import { flowNeighbor } from "../../shared/graph_walk";
 import { removeNodeById } from "../state/edit";
 import { useEditor } from "../state/store";
 import { collapseRuns, groupIdOf, isGroupNode } from "./collapse";
@@ -96,8 +97,7 @@ function Canvas() {
       if (!alive || fittedFor.current === current) return;
       const dom = document.querySelectorAll(".react-flow__node");
       const ready =
-        dom.length >= nodes.length &&
-        [...dom].every((el) => el.getBoundingClientRect().width > 0);
+        dom.length >= nodes.length && [...dom].every((el) => el.getBoundingClientRect().width > 0);
       if (!ready) {
         if (attempt < 1200) requestAnimationFrame(() => tryFit(attempt + 1));
         return;
@@ -137,16 +137,18 @@ function Canvas() {
     const tryCenter = (attempt: number) => {
       if (!alive) return;
       const n = getNode(focusReq.id);
-      const el = document.querySelector(
-        `.react-flow__node[data-id="${CSS.escape(focusReq.id)}"]`,
-      );
+      const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(focusReq.id)}"]`);
       if (n && el && el.getBoundingClientRect().width > 0) {
         const zoom = getZoom() || 1;
         const rect = el.getBoundingClientRect();
-        void setCenter(n.position.x + rect.width / zoom / 2, n.position.y + rect.height / zoom / 2, {
-          zoom: READ_ZOOM,
-          duration: 300,
-        });
+        void setCenter(
+          n.position.x + rect.width / zoom / 2,
+          n.position.y + rect.height / zoom / 2,
+          {
+            zoom: READ_ZOOM,
+            duration: 300,
+          },
+        );
         return;
       }
       if (attempt < 600) requestAnimationFrame(() => tryCenter(attempt + 1));
@@ -157,6 +159,28 @@ function Canvas() {
       cancelAnimationFrame(raf);
     };
   }, [focusReq, getNode, setCenter, getZoom]);
+
+  // 方向键上下游导航：ArrowDown=下一个 / ArrowUp=上一个（focusReq 居中；折叠内节点经 forcedVisible 显形）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target !== null &&
+        (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)
+      ) {
+        return;
+      }
+      const s = useEditor.getState();
+      if (!s.graph || s.selected === null) return;
+      const next = flowNeighbor(s.graph, s.selected, e.key === "ArrowDown" ? 1 : -1);
+      if (next === null) return;
+      e.preventDefault();
+      s.focusNode(next);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // 受控模式：change 事件回流到领域 store（位置独立存放；remove 走 removeNode）
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
@@ -190,12 +214,14 @@ function Canvas() {
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onNodeClick={(_, node) => {
-          if (node.type === "group") expandGroup(node.id);
+          const d = node.data as FlowData;
+          if (isGroupNode(d.node)) expandGroup(d.node.id, d.node.runIds);
         }}
         defaultEdgeOptions={defaultEdgeOptions}
         fitViewOptions={{ padding: 0.2, minZoom: MIN_ZOOM }}
         colorMode="dark"
         zoomOnDoubleClick={false}
+        nodeClickDistance={10}
         minZoom={MIN_ZOOM}
         nodesConnectable={false}
         edgesFocusable={false}

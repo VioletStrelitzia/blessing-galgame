@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { BgalsGraph, DialogueNode, GraphEdge, GraphNode, InstNode } from "../../shared/graph";
-import { COLLAPSE_THRESHOLD, collapseRuns, groupIdOf, isGroupNode } from "./collapse";
+import {
+  COLLAPSE_THRESHOLD,
+  EXPAND_GAP,
+  collapseRuns,
+  groupIdOf,
+  isGroupNode,
+  stackPositions,
+} from "./collapse";
 
 function dlg(id: string): DialogueNode {
   return {
@@ -34,11 +41,15 @@ function dialogueRun(n: number): BgalsGraph {
 }
 
 describe("collapseRuns", () => {
-  it(`链长 ≤ ${COLLAPSE_THRESHOLD} 不折叠`, () => {
-    const g = dialogueRun(COLLAPSE_THRESHOLD);
-    const v = collapseRuns(g, new Set());
-    expect(v.nodes).toHaveLength(g.nodes.length);
+  it(`链长 < ${COLLAPSE_THRESHOLD} 不折叠，≥ ${COLLAPSE_THRESHOLD} 折叠`, () => {
+    const under = dialogueRun(COLLAPSE_THRESHOLD - 1);
+    const v = collapseRuns(under, new Set());
+    expect(v.nodes).toHaveLength(under.nodes.length);
     expect(v.nodes.some(isGroupNode)).toBe(false);
+    // 恰为阈值即折叠
+    const at = dialogueRun(COLLAPSE_THRESHOLD);
+    const v2 = collapseRuns(at, new Set());
+    expect(v2.nodes.filter(isGroupNode)).toHaveLength(1);
   });
 
   it("长链折叠为 group 节点：摘要首 2 尾 1、hiddenCount、边重连", () => {
@@ -79,16 +90,17 @@ describe("collapseRuns", () => {
   });
 
   it("强制可见节点把链拆短（带诊断/选中不参与折叠）", () => {
-    const g = dialogueRun(10); // d1..d10；强制 d5 可见 → 4 + 1 + 5
-    const v = collapseRuns(g, new Set(), new Set(["d5"]));
+    const g = dialogueRun(11); // d1..d11；强制 d6 可见 → d1-d5 折叠 + d6 + d7-d11 折叠
+    const v = collapseRuns(g, new Set(), new Set(["d6"]));
     const groups = v.nodes.filter(isGroupNode);
     expect(groups.map((g2) => g2.runIds)).toEqual([
-      ["d6", "d7", "d8", "d9", "d10"], // 后段 5 条仍折叠
+      ["d1", "d2", "d3", "d4", "d5"],
+      ["d7", "d8", "d9", "d10", "d11"],
     ]);
-    expect(v.nodes.some((n) => n.id === "d5")).toBe(true);
-    // d5 的入边来自前链（前链 4 条不折叠，d4→d5 保留）
-    expect(v.edges.some((e) => e.from === "d4" && e.to === "d5")).toBe(true);
-    expect(v.edges.some((e) => e.from === "d5" && e.to === groups[0].id)).toBe(true);
+    expect(v.nodes.some((n) => n.id === "d6")).toBe(true);
+    // d6 的入边来自前组、出边指向后组
+    expect(v.edges.some((e) => e.from === groups[0].id && e.to === "d6")).toBe(true);
+    expect(v.edges.some((e) => e.from === "d6" && e.to === groups[1].id)).toBe(true);
   });
 
   it("option 合流点断开链（多入边不折叠）", () => {
@@ -115,5 +127,23 @@ describe("collapseRuns", () => {
     const v = collapseRuns(g, new Set());
     const group = v.nodes.find(isGroupNode);
     expect(group?.groupKind).toBe("inst");
+  });
+});
+
+describe("stackPositions（展开聚合链的位置分配）", () => {
+  it("从基准位置垂直堆叠，x 对齐、固定间距", () => {
+    expect(stackPositions({ x: 100, y: 200 }, 3)).toEqual([
+      { x: 100, y: 200 },
+      { x: 100, y: 200 + EXPAND_GAP },
+      { x: 100, y: 200 + EXPAND_GAP * 2 },
+    ]);
+  });
+
+  it("自定义间距与空链", () => {
+    expect(stackPositions({ x: 0, y: 0 }, 2, 50)).toEqual([
+      { x: 0, y: 0 },
+      { x: 0, y: 50 },
+    ]);
+    expect(stackPositions({ x: 1, y: 2 }, 0)).toEqual([]);
   });
 });

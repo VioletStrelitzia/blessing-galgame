@@ -9,6 +9,7 @@ import { emitGraph } from "../../shared/emit";
 import type { BgalsGraph } from "../../shared/graph";
 import type { BgalsSpec } from "../../shared/spec";
 import type { ModeInfo, RefsData } from "../api";
+import { stackPositions } from "../graph/collapse";
 import { fillMissingPositions, type Pos } from "../graph/layout";
 import type { DiagBadge } from "../graph/toFlow";
 
@@ -63,7 +64,8 @@ export interface EditorState {
 
   select(id: string | null): void;
   focusNode(id: string): void;
-  expandGroup(id: string): void;
+  /** 展开聚合链：成员立即从组当前位置垂直堆叠分配位置（几何稳定，避免 dagre 兜底甩到远处） */
+  expandGroup(id: string, runIds: string[]): void;
   collapseGroup(id: string): void;
   setPosition(id: string, pos: Pos): void;
   openInsertMenu(menu: InsertMenuState | null): void;
@@ -151,12 +153,25 @@ export const useEditor = create<EditorState>((set, get) => ({
   focusNode(id) {
     set((s) => ({ selected: id, focusReq: { id, n: (s.focusReq?.n ?? 0) + 1 } }));
   },
-  expandGroup(id) {
+  expandGroup(id, runIds) {
     const s = get();
     if (s.expandedGroups.has(id)) return;
     const next = new Set(s.expandedGroups);
     next.add(id);
-    set({ expandedGroups: next });
+    // 从组节点当前位置（拖动组时以 group:xxx 键写入）回退首节点位置，垂直堆叠
+    const base =
+      s.positions.get(id) ?? (runIds.length > 0 ? s.positions.get(runIds[0]) : undefined);
+    if (base === undefined) {
+      set({ expandedGroups: next });
+      return;
+    }
+    const positions = new Map(s.positions);
+    stackPositions(base, runIds.length).forEach((p, i) => positions.set(runIds[i], p));
+    set({
+      expandedGroups: next,
+      positions,
+      dirty: s.graph !== null && snapshotOf(s.graph, positions) !== s.lastSaved,
+    });
   },
   collapseGroup(id) {
     const s = get();
