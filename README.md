@@ -16,6 +16,7 @@
 - **场景池化**：`SceneManager` 以 pool/mounted 双结构管理 UI 与世界场景，常驻场景卸载不释放，切换零磁盘 I/O。
 - **游戏内 UI**：打字机对话框（支持 BBCode）、自动/跳过模式、存档/读档界面、设置界面（四路音量、文字速度、自动等待）、Toast 消息、启动画面与淡入淡出转场。
 - **配置驱动**：`config.json` 控制起始幕、资源目录、主菜单素材、初始音量、角色实例上限、存档目录等。
+- **可视化剧本编辑器**：`editor/` 内置 Web 端节点图编辑器（React Flow）：宏观剧本关系图 + 微观节点编辑、双击行内编辑、保存即编译、诊断定位到节点、图文回环校验；配套无头 CLI（`tool/bgals_cli.gd`，check/compile/dump/spec/overview 五子命令）供 CI 与编辑器复用。设计见 [docs/可视化编辑器与编译管线设计.md](docs/可视化编辑器与编译管线设计.md)。
 
 ## 运行要求
 
@@ -39,6 +40,8 @@
 
 导出 Windows 构建：先运行一次编辑器生成 `GalSs/`，再 `godot --headless --path . --export-release "Windows Desktop"`，产物在 `build/`。存档/日志/配置的落点与降级规则见 [docs/路径策略设计.md](docs/路径策略设计.md)。
 
+可视化编辑剧本：`cd editor && npm install && npm run dev:server`（离线 fixtures 模式），或设 `BGALS_GODOT`/`BGALS_PROJECT` 后 `npx tsx server/index.ts` 直连引擎（可写），浏览器打开 `http://localhost:8787`。命令行检查剧本：`godot --headless --path . -s tool/bgals_cli.gd -- check --src scripts --out report.json`。
+
 ## 目录结构
 
 | 路径 | 说明 |
@@ -50,6 +53,8 @@
 | `Resources/` | 图片、音频等资源（当前为演示占位素材） |
 | `docs/` | 设计与分析文档（索引见 `docs/README.md`） |
 | `test/` | 冒烟测试脚本与模组元数据示例 |
+| `tool/` | 无头 CLI（`bgals_cli.gd`：剧本检查/编译/图转储/指令规格/宏观关系） |
+| `editor/` | Web 可视化剧本编辑器（独立工具链，Godot 经 `.gdignore` 跳过；用法见 `editor/README.md`） |
 | `config.json` | 引擎配置 |
 | `index.json` | 资源引用名 → 路径映射 |
 | `GalSGrammar.md` | BGalS 剧本语言规范 |
