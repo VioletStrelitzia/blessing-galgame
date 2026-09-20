@@ -13,9 +13,11 @@ import { useEffect, useMemo, useRef } from "react";
 import { flowNeighbor } from "../../shared/graph_walk";
 import { removeNodeById } from "../state/edit";
 import { useEditor } from "../state/store";
-import { collapseRuns, groupIdOf, isGroupNode } from "./collapse";
+import { collapseRuns, findRuns, groupIdOf, isGroupNode, viewPositionsOf } from "./collapse";
 import { SeqEdge } from "./edges/SeqEdge";
+import { frameRects } from "./frames";
 import { kindColor } from "./kindColor";
+import { fillMissingPositions } from "./layout";
 import { CommentNode } from "./nodes/CommentNode";
 import { CondNode } from "./nodes/CondNode";
 import { DialogueNode } from "./nodes/DialogueNode";
@@ -24,7 +26,8 @@ import { JumpNode } from "./nodes/JumpNode";
 import { OptionGroupNode } from "./nodes/OptionGroupNode";
 import { RunGroupNode } from "./nodes/RunGroupNode";
 import { EndNode, StartNode } from "./nodes/StartEndNode";
-import { toFlow, type FlowData, type FlowNode } from "./toFlow";
+import { FrameNode } from "./nodes/FrameNode";
+import { toFlow, type AnyFlowNode, type FlowData } from "./toFlow";
 
 const nodeTypes: NodeTypes = {
   start: StartNode,
@@ -36,6 +39,7 @@ const nodeTypes: NodeTypes = {
   jump: JumpNode,
   comment: CommentNode,
   group: RunGroupNode,
+  frame: FrameNode,
 };
 
 const edgeTypes: EdgeTypes = { seq: SeqEdge };
@@ -63,20 +67,34 @@ function Canvas() {
   const expandGroup = useEditor((s) => s.expandGroup);
   const { setCenter, getNode, getNodes, fitView, getZoom } = useReactFlow();
 
-  // 领域图 → 聚合视图 → toFlow；带诊断角标/当前选中的节点强制可见
+  // 领域图 → 聚合视图 → 视图图布局（fillMissingPositions/dagre 作用于视图节点，
+  // 被折叠成员不占槽位，组只占一格，杜绝跨空槽的超长边）→ toFlow；带诊断角标/当前选中的节点强制可见
   const { nodes, edges } = useMemo(() => {
-    if (!graph) return { nodes: [], edges: [] };
+    if (!graph) return { nodes: [] as AnyFlowNode[], edges: [] };
     const forced = new Set([...Object.keys(nodeDiags), ...(selected ? [selected] : [])]);
     const view = collapseRuns(graph, expandedGroups, forced);
-    const flow = toFlow(view, positions, nodeDiags, graph.edges);
+    const laid = fillMissingPositions(view, viewPositionsOf(view, positions));
+    const flow = toFlow(view, laid, nodeDiags, graph.edges);
     // 展开中链的首节点给「收起」按钮
     const expandedHeads = new Set([...expandedGroups].map((id) => id.slice(groupIdOf("").length)));
-    return {
-      nodes: flow.nodes.map((n) =>
-        expandedHeads.has(n.id) ? { ...n, data: { ...n.data, collapseId: groupIdOf(n.id) } } : n,
-      ),
-      edges: flow.edges,
-    };
+    const flowNodes: AnyFlowNode[] = flow.nodes.map((n) =>
+      expandedHeads.has(n.id) ? { ...n, data: { ...n.data, collapseId: groupIdOf(n.id) } } : n,
+    );
+    // 展开中的链外套 Archify 分组框（压底、点击穿透、位置随成员拖动重算）
+    const frames: AnyFlowNode[] = frameRects(findRuns(graph, forced), expandedGroups, laid).map(
+      (f) => ({
+        id: `frame:${f.groupId}`,
+        type: "frame" as const,
+        position: { x: f.x, y: f.y },
+        data: { frame: { label: f.label, color: kindColor(f.groupKind) } },
+        selectable: false,
+        draggable: false,
+        focusable: false,
+        zIndex: -1,
+        style: { width: f.width, height: f.height, zIndex: -1, pointerEvents: "none" },
+      }),
+    );
+    return { nodes: [...frames, ...flowNodes], edges: flow.edges };
   }, [graph, positions, nodeDiags, selected, expandedGroups]);
 
   const rendered = useMemo(
@@ -183,7 +201,7 @@ function Canvas() {
   }, []);
 
   // 受控模式：change 事件回流到领域 store（位置独立存放；remove 走 removeNode）
-  const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
+  const onNodesChange = (changes: NodeChange<AnyFlowNode>[]) => {
     for (const ch of changes) {
       if (ch.type === "position" && ch.position) {
         setPosition(ch.id, ch.position);
@@ -215,7 +233,7 @@ function Canvas() {
         onNodesChange={onNodesChange}
         onNodeClick={(_, node) => {
           const d = node.data as FlowData;
-          if (isGroupNode(d.node)) expandGroup(d.node.id, d.node.runIds);
+          if (d.node && isGroupNode(d.node)) expandGroup(d.node.id, d.node.runIds);
         }}
         defaultEdgeOptions={defaultEdgeOptions}
         fitViewOptions={{ padding: 0.2, minZoom: MIN_ZOOM }}
@@ -233,8 +251,9 @@ function Canvas() {
           pannable
           zoomable
           nodeColor={(n) => {
+            if (n.type === "frame") return "transparent";
             const d = n.data as FlowData | undefined;
-            const key = d && isGroupNode(d.node) ? d.node.groupKind : (n.type ?? "");
+            const key = d && d.node && isGroupNode(d.node) ? d.node.groupKind : (n.type ?? "");
             return kindColor(key);
           }}
           nodeStrokeColor={() => "transparent"}
