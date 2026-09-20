@@ -1,5 +1,6 @@
 import type { CheckReport } from "../shared/check";
 import type { BgalsGraph } from "../shared/graph";
+import type { BgalsOverview } from "../shared/overview";
 import type { Sidecar } from "../shared/sidecar";
 import type { BgalsSpec } from "../shared/spec";
 
@@ -51,6 +52,7 @@ export const api = {
   graph: (script: string) => request<BgalsGraph>(`/api/graph/${encodeURIComponent(script)}`),
   check: () => post<CheckReport>("/api/check"),
   refs: () => request<RefsData>("/api/refs"),
+  overview: () => request<BgalsOverview>("/api/overview"),
   /** sidecar 404（尚未保存过布局）容忍为 null */
   async sidecar(script: string): Promise<Sidecar | null> {
     try {

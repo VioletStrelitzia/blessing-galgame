@@ -47,6 +47,7 @@ app.get("/api/graph/:script", async (c) => {
 });
 app.post("/api/check", async (c) => c.json(await source.check()));
 app.get("/api/refs", async (c) => c.json(await source.refs()));
+app.get("/api/overview", async (c) => c.json(await source.overview()));
 
 app.get("/api/script/:script/sidecar", async (c) => {
   const script = c.req.param("script");

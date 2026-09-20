@@ -15,6 +15,9 @@ export function createLiveSource(): Source {
   const godot = process.env.BGALS_GODOT;
   const project = path.resolve(process.env.BGALS_PROJECT ?? path.join(EDITOR_ROOT, ".."));
 
+  // overview 短时缓存（spawn CLI 开销大，5s 窗口内复用）
+  let overviewCache: { at: number; data: unknown } | null = null;
+
   async function projectConfig(): Promise<{ readDir: string; saveDir: string }> {
     try {
       const cfg = JSON.parse(await readFile(path.join(project, "config.json"), "utf8")) as {
@@ -138,6 +141,16 @@ export function createLiveSource(): Source {
     },
     async refs() {
       return JSON.parse(await readFile(path.join(project, "index.json"), "utf8"));
+    },
+    async overview() {
+      if (overviewCache !== null && Date.now() - overviewCache.at < 5_000) {
+        return overviewCache.data;
+      }
+      // 先增量编译（哈希保证廉价），与 /api/graph 同口径保鲜
+      await runCli(["compile"], "--report");
+      const data = await runCli(["overview"]);
+      overviewCache = { at: Date.now(), data };
+      return data;
     },
     async sidecar(script) {
       const { readDir } = await projectConfig();

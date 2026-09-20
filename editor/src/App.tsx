@@ -4,10 +4,11 @@ import { Toolbar } from "./components/Toolbar";
 import { VerifyBanner } from "./components/VerifyBanner";
 import { startDevBridge } from "./dev/bridge";
 import { FlowCanvas } from "./graph/FlowCanvas";
+import { OverviewCanvas } from "./graph/OverviewCanvas";
 import { Diagnostics } from "./panels/Diagnostics";
 import { Inspector } from "./panels/Inspector";
 import { ScriptList } from "./panels/ScriptList";
-import { init, save } from "./state/io";
+import { init, openOverview, save, showDetail } from "./state/io";
 import { useEditor } from "./state/store";
 
 function Badge({ children }: { children: React.ReactNode }) {
@@ -46,9 +47,31 @@ function useGlobalKeys() {
   }, []);
 }
 
+function ViewSwitch() {
+  const view = useEditor((s) => s.view);
+  const item = (v: "detail" | "overview", label: string) => (
+    <button
+      key={v}
+      onClick={() => (v === "overview" ? void openOverview() : showDetail())}
+      className={`rounded-sm px-2.5 py-0.5 font-mono text-[11px] transition-colors ${
+        view === v ? "bg-accent/15 text-accent" : "text-mut hover:text-ink"
+      }`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div className="flex items-center gap-0.5 rounded-md border border-grid bg-panel p-0.5">
+      {item("detail", "剧本")}
+      {item("overview", "总览")}
+    </div>
+  );
+}
+
 export default function App() {
   const graph = useEditor((s) => s.graph);
   const mode = useEditor((s) => s.mode);
+  const view = useEditor((s) => s.view);
   const dirty = useEditor((s) => s.dirty);
   const error = useEditor((s) => s.error);
   const setError = useEditor((s) => s.setError);
@@ -63,26 +86,35 @@ export default function App() {
     <div className="flex h-screen flex-col font-sans">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-grid px-4">
         <span className="font-mono text-sm font-semibold text-accent">BGalS</span>
+        <ViewSwitch />
         <span className="flex items-center gap-1.5 text-sm text-ink">
-          {graph?.script ?? "…"}
-          {dirty && <span className="h-1.5 w-1.5 rounded-full bg-warn" title="有未保存的修改" />}
+          {view === "detail" ? (graph?.script ?? "…") : "剧本总览"}
+          {view === "detail" && dirty && (
+            <span className="h-1.5 w-1.5 rounded-full bg-warn" title="有未保存的修改" />
+          )}
         </span>
         {graph && <Badge>{graph.compiler}</Badge>}
         {graph && <Badge>{graph.format}</Badge>}
         {mode === "fixtures" && <Badge>fixtures · 只读数据</Badge>}
         <div className="flex-1" />
       </header>
-      <VerifyBanner />
+      {view === "detail" && <VerifyBanner />}
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-60 shrink-0 flex-col border-r border-grid bg-panel">
           <ScriptList />
           <Diagnostics />
         </aside>
         <main className="flex min-w-0 flex-1 flex-col">
-          <Toolbar />
-          <div className="min-h-0 flex-1">
-            <FlowCanvas />
-          </div>
+          {view === "detail" ? (
+            <>
+              <Toolbar />
+              <div className="min-h-0 flex-1">
+                <FlowCanvas />
+              </div>
+            </>
+          ) : (
+            <OverviewCanvas />
+          )}
         </main>
         <aside className="w-80 shrink-0 border-l border-grid bg-panel">
           <Inspector />

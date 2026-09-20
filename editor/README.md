@@ -50,6 +50,18 @@ npm run dev:server
 npm run build && npm run dev:server
 ```
 
+## 总览视图（剧本宏观关系）
+
+- 顶栏左侧「剧本 / 总览」切换；切到总览拉取 `GET /api/overview`（`bgals-overview/1`：
+  fixtures 读 overview.json；live 先增量 compile 再 spawn `overview` CLI，5s 短时缓存）。
+- 总览画布：`buildOverviewFlow`（纯函数）+ dagre **LR** 布局；剧本节点（青色，统计行
+  `13 对话 · 6 指令 · …`）、begin 剧本绿描边 + `BEGIN` 标签、`main_menu` 灰色终态胶囊、
+  missing 目标玫瑰色虚线幽灵节点；边为 jump（smoothstep + 闭合箭头）；节点可拖（仅会话内），
+  载入后全图 fit（padding 0.3）。
+- **双击下钻**：总览剧本节点 → `openScript` + 切回 detail；detail 画布里 jump 节点双击 →
+  打开目标剧本（`main_menu` 为主菜单终态，tooltip 说明不跳转）。单击总览节点 → 右侧 Inspector
+  显示完整统计 + 「打开剧本」按钮；左侧剧本列表点击 = 切回 detail 并打开。
+
 ## M2 编辑功能
 
 - **载入流**：选剧本 → 并行 GET graph + sidecar（404 容忍）→ applySidecar 还原布局与注释节点

@@ -1,0 +1,54 @@
+{
+  "begin": "demo_scene1",
+  "compiler": "bgals2.4",
+  "edges": [
+    {
+      "from": "demo_scene1",
+      "kind": "jump",
+      "to": "demo_scene2"
+    },
+    {
+      "from": "demo_scene1",
+      "kind": "jump",
+      "to": "main_menu"
+    },
+    {
+      "from": "demo_scene2",
+      "kind": "jump",
+      "to": "main_menu"
+    },
+    {
+      "from": "demo_scene3",
+      "kind": "jump",
+      "to": "main_menu"
+    }
+  ],
+  "format": "bgals-overview/1",
+  "missing": [],
+  "scripts": [
+    {
+      "conds": 1,
+      "dialogues": 13,
+      "insts": 6,
+      "jumps": 2,
+      "name": "demo_scene1",
+      "options": 1
+    },
+    {
+      "conds": 0,
+      "dialogues": 5,
+      "insts": 6,
+      "jumps": 1,
+      "name": "demo_scene2",
+      "options": 0
+    },
+    {
+      "conds": 0,
+      "dialogues": 11,
+      "insts": 18,
+      "jumps": 1,
+      "name": "demo_scene3",
+      "options": 0
+    }
+  ]
+}
