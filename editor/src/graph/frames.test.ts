@@ -39,7 +39,12 @@ describe("frameRects（展开链的分组边界框）", () => {
     const gid = groupIdOf("d1");
     const runs = findRuns(g, new Set());
     const base = { x: 100, y: 200 };
-    const positions = new Map(stackPositions(base, 6).map((p, i) => [`d${i + 1}`, p] as const));
+    const size0 = estimateSizeFor("dialogue");
+    const positions = new Map(
+      stackPositions(base, Array(6).fill(size0.height) as number[]).map(
+        (p, i) => [`d${i + 1}`, p] as const,
+      ),
+    );
     const rects = frameRects(runs, new Set([gid]), positions);
     expect(rects).toHaveLength(1);
     const r = rects[0];

@@ -3,15 +3,27 @@
 // 无 option/branch/jump 混入；链长 ≥ COLLAPSE_THRESHOLD 即折叠。带诊断/当前选中节点强制可见。
 
 import type { BgalsGraph, GraphEdge, GraphNode } from "../../shared/graph";
+import type { Pos } from "./layout";
 
 /** 链长达到该值即折叠（首 2 + 尾 1 + 展开其余 N 条） */
 export const COLLAPSE_THRESHOLD = 4;
 
-/** 展开聚合链时的成员位置：从组节点当前位置垂直堆叠（x 对齐，固定间距） */
-export const EXPAND_GAP = 130;
+/** 展开聚合链时成员间的垂直净距 */
+export const EXPAND_GAP_Y = 24;
 
-export function stackPositions(base: { x: number; y: number }, count: number, gap = EXPAND_GAP) {
-  return Array.from({ length: count }, (_, i) => ({ x: base.x, y: base.y + i * gap }));
+/**
+ * 展开聚合链时的成员位置：从组节点当前位置垂直堆叠（x 对齐）。
+ * heights 为逐成员估算高度（estimateSizeFor），净距 gapY 累加；
+ * 与真实渲染高度的残差由 FlowCanvas 的 settle（separateOverlaps）按实测尺寸修正。
+ */
+export function stackPositions(base: Pos, heights: number[], gapY = EXPAND_GAP_Y): Pos[] {
+  const out: Pos[] = [];
+  let y = base.y;
+  for (const h of heights) {
+    out.push({ x: base.x, y });
+    y += h + gapY;
+  }
+  return out;
 }
 
 export interface GroupViewNode {
