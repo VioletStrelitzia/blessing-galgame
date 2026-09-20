@@ -24,6 +24,7 @@ export interface Source {
   graph(script: string): Promise<unknown | null>;
   check(): Promise<unknown>;
   refs(): Promise<unknown>;
+  overview(): Promise<unknown>;
   sidecar(script: string): Promise<unknown | null>;
   save(script: string, text: string, sidecar: unknown): Promise<unknown>;
   createScript(name: string): Promise<{ script: string }>;
@@ -55,6 +56,7 @@ export function createFixturesSource(): Source {
     },
     check: () => readJson(path.join(FIXTURES, "check.sample.json")),
     refs: () => readJson(path.join(FIXTURES, "refs.json")),
+    overview: () => readJson(path.join(FIXTURES, "overview.json")),
     sidecar: () => Promise.resolve(null),
     save: readOnly,
     createScript: readOnly,

@@ -73,6 +73,22 @@ export async function openScript(script: string): Promise<void> {
   }
 }
 
+/** 切到总览视图并拉取 /api/overview（detail 现场 graph/positions/selected 保留不动） */
+export async function openOverview(): Promise<void> {
+  useEditor.setState({ view: "overview", overviewLoading: true, error: null });
+  try {
+    const overview = await api.overview();
+    useEditor.setState({ overview, overviewLoading: false, overviewSelected: null });
+  } catch (e) {
+    useEditor.setState({ overviewLoading: false, error: errMsg(e) });
+  }
+}
+
+/** 切回剧本 detail 视图（现场保留） */
+export function showDetail(): void {
+  useEditor.setState({ view: "detail" });
+}
+
 export async function newScript(name: string): Promise<void> {
   const { mode } = useEditor.getState();
   if (mode === "fixtures") {

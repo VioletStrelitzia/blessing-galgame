@@ -7,6 +7,7 @@ import { create } from "zustand";
 import { scriptNameOfFile, type CheckReport } from "../../shared/check";
 import { emitGraph } from "../../shared/emit";
 import type { BgalsGraph } from "../../shared/graph";
+import type { BgalsOverview } from "../../shared/overview";
 import type { BgalsSpec } from "../../shared/spec";
 import type { ModeInfo, RefsData } from "../api";
 import { stackPositions } from "../graph/collapse";
@@ -40,6 +41,12 @@ export interface EditorState {
   scripts: string[];
   current: string | null;
   graph: BgalsGraph | null;
+  /** detail = 剧本画布；overview = 剧本宏观关系总览 */
+  view: "detail" | "overview";
+  overview: BgalsOverview | null;
+  overviewLoading: boolean;
+  /** 总览画布中选中的剧本节点 id（剧本名） */
+  overviewSelected: string | null;
   positions: Map<string, Pos>;
   selected: string | null;
   /** 诊断面板点击后的画布定位请求（n 为触发序号） */
@@ -64,6 +71,7 @@ export interface EditorState {
 
   select(id: string | null): void;
   focusNode(id: string): void;
+  selectOverviewNode(id: string | null): void;
   /** 展开聚合链：成员立即从组当前位置垂直堆叠分配位置（几何稳定，避免 dagre 兜底甩到远处） */
   expandGroup(id: string, runIds: string[]): void;
   collapseGroup(id: string): void;
@@ -128,6 +136,10 @@ export const useEditor = create<EditorState>((set, get) => ({
   scripts: [],
   current: null,
   graph: null,
+  view: "detail",
+  overview: null,
+  overviewLoading: false,
+  overviewSelected: null,
   positions: new Map(),
   selected: null,
   focusReq: null,
@@ -149,6 +161,9 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   select(id) {
     set({ selected: id });
+  },
+  selectOverviewNode(id) {
+    set({ overviewSelected: id });
   },
   focusNode(id) {
     set((s) => ({ selected: id, focusReq: { id, n: (s.focusReq?.n ?? 0) + 1 } }));
