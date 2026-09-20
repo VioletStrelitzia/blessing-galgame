@@ -5,6 +5,7 @@ extends SceneTree
 ##   godot --headless --path . -s tool/bgals_cli.gd -- compile [--report report.json]
 ##   godot --headless --path . -s tool/bgals_cli.gd -- dump    --src <tres 路径> --out graph.json
 ##   godot --headless --path . -s tool/bgals_cli.gd -- spec    --out spec.json
+##   godot --headless --path . -s tool/bgals_cli.gd -- overview --out overview.json
 ## 退出码：0 成功；1 诊断含 error；2 用法/IO 错误；3 产物 compiler 版本不匹配。
 
 const LOG_TAG := "BgalsCLI"
@@ -14,6 +15,7 @@ const USAGE := """BGalS 编译 CLI。用法：
   godot --headless --path . -s tool/bgals_cli.gd -- compile [--report report.json]
   godot --headless --path . -s tool/bgals_cli.gd -- dump    --src <tres 路径> --out graph.json
   godot --headless --path . -s tool/bgals_cli.gd -- spec    --out spec.json
+  godot --headless --path . -s tool/bgals_cli.gd -- overview --out overview.json
 退出码：0 成功；1 诊断含 error；2 用法/IO 错误；3 产物 compiler 版本不匹配。"""
 
 var G   # Global（-s 模式下 autoload 标识符编译期不可见，Variant 动态访问）
@@ -55,6 +57,8 @@ func _run() -> void:
 			_cmd_dump(opts)
 		"spec":
 			_cmd_spec(opts)
+		"overview":
+			_cmd_overview(opts)
 		_:
 			_print_usage()
 			quit(2)
@@ -164,6 +168,36 @@ func _cmd_spec(opts: Dictionary) -> void:
 		_done(false, 0, 0, 2)
 		return
 	_done(true, 0, 0)
+
+
+## overview：扫描产物目录全部 tres，dump 成图后汇总剧本宏观关系（jump 连接 + 节点统计）。
+## 陈旧产物（compiler 不符）跳过并计 warning，不阻塞整体输出。
+func _cmd_overview(opts: Dictionary) -> void:
+	var out: String = opts.get("out", "")
+	if out.is_empty():
+		_print_usage()
+		quit(2)
+		return
+	var save_dir := _save_dir()
+	var graphs: Array[Dictionary] = []
+	var warnings := 0
+	for file_name in Utils.get_file_list(save_dir, false, false):
+		if not file_name.ends_with(".tres"):
+			continue
+		var path := save_dir.path_join(file_name)
+		var res := ResourceLoader.load(path)
+		if not (res is GalEventItemSequence):
+			continue
+		if res.compiler != DialogueImporter.COMPILER_VERSION:
+			GalLogger.warn(LOG_TAG, "产物 compiler 不符，已跳过（请重新 compile）: " + path)
+			warnings += 1
+			continue
+		graphs.append(GraphDumper.build(res, file_name.get_basename()))
+	var begin: String = G.config.get("begin_script", "")
+	if not _write_json(out, GraphDumper.build_overview(graphs, begin)):
+		_done(false, 0, warnings, 2)
+		return
+	_done(true, 0, warnings)
 
 
 # --- 装配与输出 ---

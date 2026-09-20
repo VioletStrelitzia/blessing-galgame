@@ -19,6 +19,7 @@ func _init() -> void:
 	_test_build_golden_scene1()
 	_test_build_spec()
 	_test_scan_txt_only()
+	_test_build_overview()
 
 	print("CLI_TEST_DONE ok=", _ok)
 	quit(0 if _ok else 1)
@@ -367,3 +368,31 @@ func _test_scan_txt_only() -> void:
 	for name in ["alpha.txt", "alpha.graph.json", "notes.md"]:
 		DirAccess.remove_absolute(dir.path_join(name))
 	DirAccess.remove_absolute(dir)
+
+
+## 宏观关系图：jump 连接提取、统计、missing、begin 透传
+func _test_build_overview() -> void:
+	var known: Array[String] = ["a", "b"]
+	var diags_a: Array[Dictionary] = []
+	var seq_a := DialogueImporter.parse_script(PackedStringArray([
+		"旁白甲",
+		"jump b",
+		"jump ghost_script",
+	]), "a", diags_a, known)
+	# ghost_script 不在 known_scripts → 仅警告，不应有 error
+	for d in diags_a:
+		_assert(d["level"] != "error", "不应有 error 诊断: %s" % [d])
+	var diags_b: Array[Dictionary] = []
+	var seq_b := DialogueImporter.parse_script(PackedStringArray(["旁白乙", "旁白乙二"]), "b", diags_b, known)
+	var graphs: Array[Dictionary] = [GraphDumper.build(seq_a, "a"), GraphDumper.build(seq_b, "b")]
+	var ov := GraphDumper.build_overview(graphs, "a")
+	_assert(ov["format"] == "bgals-overview/1", "format 错误")
+	_assert(ov["begin"] == "a", "begin 应透传")
+	_assert(ov["compiler"] == DialogueImporter.COMPILER_VERSION, "compiler 应一致")
+	var scripts: Array = ov["scripts"]
+	_assert(scripts.size() == 2 and scripts[0]["name"] == "a" and scripts[1]["name"] == "b",
+		"scripts 应按名排序: %s" % [scripts])
+	_assert(scripts[0]["jumps"] == 2 and scripts[1]["dialogues"] == 2, "统计错误: %s" % [scripts])
+	var edges: Array = ov["edges"]
+	_assert(edges.size() == 2, "jump 边应为 2 条（去重后）: %s" % [edges])
+	_assert((ov["missing"] as Array) == ["ghost_script"], "missing 应只含 ghost_script: %s" % [ov["missing"]])

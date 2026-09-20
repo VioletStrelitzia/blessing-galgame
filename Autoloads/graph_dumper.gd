@@ -345,3 +345,49 @@ static func _cond_child(sub: Dictionary, ctx_prec: int, is_left: bool) -> String
 static func _cond_malformed(tokens: Array) -> String:
 	push_warning("GraphDumper: 畸形条件记号流，无法还原中缀: %s" % [tokens])
 	return ""
+
+
+## 剧本宏观关系图（bgals-overview/1）：输入若干图 JSON（build 的产物），提取 jump 连接与节点统计。
+## begin 为起始剧本名；missing 为 jump 目标中不存在于 scripts 的名字（main_menu 特殊目标除外）。
+static func build_overview(graphs: Array[Dictionary], begin: String) -> Dictionary:
+	var names := {}
+	var scripts: Array[Dictionary] = []
+	var edges: Array[Dictionary] = []
+	var edge_seen := {}
+	var targets := {}
+	for g in graphs:
+		var script: String = g["script"]
+		names[script] = true
+		var stats := {"dialogue": 0, "inst": 0, "option_group": 0, "cond": 0, "jump": 0}
+		for node in g["nodes"]:
+			var kind: String = node["kind"]
+			if stats.has(kind):
+				stats[kind] += 1
+			if kind == "jump":
+				var target: String = node["target"]
+				targets[target] = true
+				var key := "%s->%s" % [script, target]
+				if not edge_seen.has(key):
+					edge_seen[key] = true
+					edges.append({"from": script, "to": target, "kind": "jump"})
+		scripts.append({
+			"name": script,
+			"dialogues": stats["dialogue"],
+			"insts": stats["inst"],
+			"options": stats["option_group"],
+			"conds": stats["cond"],
+			"jumps": stats["jump"],
+		})
+	var missing: Array[String] = []
+	for t in targets:
+		if not names.has(t) and t != "main_menu":
+			missing.append(t)
+	scripts.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["name"] < b["name"])
+	return {
+		"format": "bgals-overview/1",
+		"compiler": DialogueImporter.COMPILER_VERSION,
+		"begin": begin,
+		"scripts": scripts,
+		"edges": edges,
+		"missing": missing,
+	}
