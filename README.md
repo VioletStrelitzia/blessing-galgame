@@ -25,6 +25,15 @@
 
 ## 快速开始
 
+### 安装依赖（全部便携、文件夹内自包含，不动系统与用户主目录）
+
+- **Godot 4.5+**：[官网](https://godotengine.org/download)或 [GitHub Releases](https://github.com/godotengine/godot/releases) 下载 `Godot_v4.5.x-stable_win64.zip`，解压到任意位置（如 `tools/godot/`）——单 exe 便携软件，不写注册表。运行项目的导入缓存只写项目内 `.godot/`。
+- **Node.js ≥ 20**（仅 Web 剧本编辑器需要）：[官网](https://nodejs.org/) 下载 zip 版解压到任意位置（如 `tools/node/`），其中 `node.exe`/`npm.cmd` 直接可用。依赖安装只进 `editor/node_modules/`；npm 缓存想也留在项目内：`set npm_config_cache=<项目>\tools\.npm-cache`。
+
+> 想把部署交给 AI 助手？直接把 [docs/AI部署指南.md](docs/AI部署指南.md) 发给它，照做即可。
+
+### 运行
+
 1. 克隆本仓库（`blessing-galgame`）。
 2. 打开 Godot 项目管理器，导入仓库根目录的 `project.godot`。
 3. 直接运行（F5）：启动画面 → 主菜单 → 点击「开始」进入演示剧本。
