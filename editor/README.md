@@ -73,7 +73,11 @@ npm run build && npm run dev:server
     注释（有选中节点时 `addComment(before=选中节点)`，否则 `before=null` 文件头）、
     保存（Ctrl+S）、撤销/重做（Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y）、检查、回环校验；dirty 指示点。
   - Delete/Backspace 或 Inspector 按钮删除节点（组/条件自动收子图，start/end 除外）。
-  - 拖动节点实时更新位置（位置独立存放，不进撤销栈，但参与 dirty 判定）。
+  - 拖动节点实时碰撞推挤：被拖节点钉住，重叠节点按实测尺寸让位（`graph/collide.ts`
+    确定性 AABB 松弛，非 d3-force——模拟式非确定且矩形支持薄弱）；整段拖动合并为
+    一个撤销步（onNodeDragStart 快照 → onNodeDragStop 压栈）。
+  - 渲染稳定后自动 settle：按实测尺寸分离残余重叠（展开聚合、文本变高、估算补位的
+    残差）；载入后首次 settle 属自动规整，不标 dirty。
   - **双击行内编辑**（dialogue 角色+台词 / comment 文本，共用 `components/inlineEdit.ts` 的
     `useInlineEdit`）：Enter 提交、Shift+Enter 换行、Esc 取消还原、失焦提交；
     提交走 `patchDialogue`/`patchComment`（与 Inspector 同一 store action，撤销/dirty 链路一致）；
@@ -83,7 +87,9 @@ npm run build && npm run dev:server
 - **聚合视图**（纯视图层，不动领域图）：同 kind（dialogue/inst）连续 seq 链长度 ≥ 4 折叠为
   group 节点（胶囊标签 `DIALOGUE ×12` + 首 2 尾 1 摘要 + 「展开其余 N 条」）；带诊断/选中节点
   强制可见；展开链首节点左上角有「收起」按钮；触及组的合成边不显示「+」。expandedGroups 随剧本切换清空。
-  展开时成员从组当前位置垂直堆叠（间距 130，`stackPositions`），收起回到堆叠起点，几何稳定。
+  展开时成员从组当前位置按估算高度垂直堆叠（`stackPositions`），同时下游节点整体
+  下移腾出整链空间（`expandShift` 记录，收起时反向收回、零漂移）；与真实渲染高度的
+  残差由 settle 按实测修正，分组框（frame）也用实测尺寸收边，框内不会有外来节点。
   **布局作用于聚合后的视图图**（fillMissingPositions/dagre 的输入是 collapseRuns 产物，
   被折叠成员不占槽位，组只占一格）；展开中的链外套分组边界框（frame 节点：12px 圆角、
   1px 虚线语义色描边、5% 色混底、左上角 `KIND ×N` 标签，压底不响应交互），收起即消失。
@@ -106,6 +112,8 @@ kind 语义色（青 dialogue / 紫 inst / 琥珀 option·cond / 玫瑰 jump / �
 节点公式 = 不透明底色（`color-mix(语义色 10%, #0F172A)`）+ 1.5px 全饱和描边 + 6px 圆角，Flat-at-Rest；
 连线为正交折线（smoothstep，8px 圆角）1.5px `#64748B` + 闭合小三角；标签药丸底色块（panel，rx 3）。
 全局面等宽（@fontsource/jetbrains-mono 400/600/700），CJK 走系统回退；单行截断一律尾部保留（TailText）。
+**光标模型**：画布与节点统一箭头（覆盖 React Flow 默认手掌），精确指向优先（Obsidian/tldraw 同模型）；
+平移 = 左键拖画布，缩放 = 滚轮，另有小地图与方向键导航。
 
 - **Inspector（spec 驱动）**：dialogue 角色/台词/锚点 chips/prev/post 槽编辑器；
   inst 参数表单（STR→text、FLOAT/INT→number、BOOL→开关；role=audio/texture→refs datalist、
@@ -117,7 +125,8 @@ kind 语义色（青 dialogue / 紫 inst / 琥珀 option·cond / 玫瑰 jump / �
   fixtures 模式 save 返回 403「只读」。
 - **回环校验**（fixtures 禁用）：GET 服务端新鲜 dump → `semanticEqual`（剥 comment）→
   顶栏下方横幅：绿「图文一致」/ 红 diffs 列表。
-- **撤销**：图 JSON 深拷贝快照，cap 100；同 tag 连续输入 800ms 内合并为一个撤销步。
+- **撤销**：图 + 位置深拷贝快照双栈，cap 100；同 tag 连续输入 800ms 内合并为一个撤销步；
+  拖动手势经 beginMove/endMove 合并为一步。展开/收起与 settle 属视图机制，不进撤销栈。
 
 ## 调试桥（--dev）
 
@@ -174,7 +183,7 @@ godot --headless --path . -s tool/bgals_cli.gd -- check --src scripts --out edit
 
 ## 已知边界（M2）
 
-- 撤销栈只含图快照：节点位置（sidecar 布局）随拖动实时更新但不进撤销栈，撤销不还原布局。
+- 展开/收起与 settle 防重叠属视图机制，不进撤销栈；撤销覆盖图变更与拖动位置。
 - jump 为终端节点：不能插在 seq 边中间（插入菜单中禁用），仅可末尾追加。
 - 诊断定位依赖 emit lineMap（当前内存图口径）；未保存就「检查」时，行号按内存图尽力映射。
 - dialogue 内锚点只读，修改台词后由引擎下次 dump 重建。

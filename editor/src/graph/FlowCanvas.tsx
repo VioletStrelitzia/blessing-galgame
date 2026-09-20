@@ -9,10 +9,11 @@ import {
   type NodeChange,
   type NodeTypes,
 } from "@xyflow/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { flowNeighbor } from "../../shared/graph_walk";
 import { removeNodeById } from "../state/edit";
 import { useEditor } from "../state/store";
+import { separateOverlaps, type CollideRect } from "./collide";
 import { collapseRuns, findRuns, groupIdOf, isGroupNode, viewPositionsOf } from "./collapse";
 import { SeqEdge } from "./edges/SeqEdge";
 import { frameRects } from "./frames";
@@ -54,6 +55,32 @@ const LOAD_FIT_MIN = 0.75;
 const READ_ZOOM = 0.85;
 const MIN_ZOOM = 0.3;
 
+/** settle 写回护栏：连续 N 轮仍未收敛即停手（理论不可达，防非收敛死循环） */
+const SETTLE_GUARD = 30;
+
+type SizeMap = Map<string, { w: number; h: number }>;
+
+function sameSizeMap(a: SizeMap, b: SizeMap): boolean {
+  if (a.size !== b.size) return false;
+  for (const [k, v] of a) {
+    const u = b.get(k);
+    if (!u || Math.abs(u.w - v.w) > 0.5 || Math.abs(u.h - v.h) > 0.5) return false;
+  }
+  return true;
+}
+
+/** 量取当前全部可见节点（frame 除外）的实测尺寸（屏幕 px ÷ zoom → 流程坐标） */
+function measureNodes(zoom: number): SizeMap {
+  const m: SizeMap = new Map();
+  document.querySelectorAll(".react-flow__node[data-id]").forEach((el) => {
+    const id = el.getAttribute("data-id");
+    if (id === null || id.startsWith("frame:")) return;
+    const r = el.getBoundingClientRect();
+    if (r.width > 0) m.set(id, { w: r.width / zoom, h: r.height / zoom });
+  });
+  return m;
+}
+
 function Canvas() {
   const graph = useEditor((s) => s.graph);
   const positions = useEditor((s) => s.positions);
@@ -62,10 +89,23 @@ function Canvas() {
   const current = useEditor((s) => s.current);
   const select = useEditor((s) => s.select);
   const setPosition = useEditor((s) => s.setPosition);
+  const setPositions = useEditor((s) => s.setPositions);
+  const beginMove = useEditor((s) => s.beginMove);
+  const endMove = useEditor((s) => s.endMove);
   const focusReq = useEditor((s) => s.focusReq);
   const expandedGroups = useEditor((s) => s.expandedGroups);
   const expandGroup = useEditor((s) => s.expandGroup);
   const { setCenter, getNode, getNodes, fitView, getZoom } = useReactFlow();
+
+  // 实测尺寸（settle pass 量取）：frame 包围盒按真实高度收边，拖动碰撞复用
+  const [sizes, setSizes] = useState<SizeMap>(new Map());
+  // 拖动手势状态：碰撞推挤在 onNodesChange 里实时做，settle pass 期间挂起
+  const draggingRef = useRef(false);
+  const dragSizesRef = useRef<SizeMap | null>(null);
+  // settle 签名（同状态不重复跑）与收敛护栏；载入后首次 settle 为自动规整（不标 dirty）
+  const settleSigRef = useRef("");
+  const settleGuardRef = useRef(0);
+  const settleNormFor = useRef<string | null>(null);
 
   // 领域图 → 聚合视图 → 视图图布局（fillMissingPositions/dagre 作用于视图节点，
   // 被折叠成员不占槽位，组只占一格，杜绝跨空槽的超长边）→ toFlow；带诊断角标/当前选中的节点强制可见
@@ -80,22 +120,25 @@ function Canvas() {
     const flowNodes: AnyFlowNode[] = flow.nodes.map((n) =>
       expandedHeads.has(n.id) ? { ...n, data: { ...n.data, collapseId: groupIdOf(n.id) } } : n,
     );
-    // 展开中的链外套 Archify 分组框（压底、点击穿透、位置随成员拖动重算）
-    const frames: AnyFlowNode[] = frameRects(findRuns(graph, forced), expandedGroups, laid).map(
-      (f) => ({
-        id: `frame:${f.groupId}`,
-        type: "frame" as const,
-        position: { x: f.x, y: f.y },
-        data: { frame: { label: f.label, color: kindColor(f.groupKind) } },
-        selectable: false,
-        draggable: false,
-        focusable: false,
-        zIndex: -1,
-        style: { width: f.width, height: f.height, zIndex: -1, pointerEvents: "none" },
-      }),
-    );
+    // 展开中的链外套 Archify 分组框（压底、点击穿透、位置随成员拖动重算；尺寸用实测）
+    const frames: AnyFlowNode[] = frameRects(
+      findRuns(graph, forced),
+      expandedGroups,
+      laid,
+      sizes,
+    ).map((f) => ({
+      id: `frame:${f.groupId}`,
+      type: "frame" as const,
+      position: { x: f.x, y: f.y },
+      data: { frame: { label: f.label, color: kindColor(f.groupKind) } },
+      selectable: false,
+      draggable: false,
+      focusable: false,
+      zIndex: -1,
+      style: { width: f.width, height: f.height, zIndex: -1, pointerEvents: "none" },
+    }));
     return { nodes: [...frames, ...flowNodes], edges: flow.edges };
-  }, [graph, positions, nodeDiags, selected, expandedGroups]);
+  }, [graph, positions, nodeDiags, selected, expandedGroups, sizes]);
 
   const rendered = useMemo(
     () => nodes.map((n) => ({ ...n, selected: n.id === selected })),
@@ -107,6 +150,9 @@ function Canvas() {
   const fittedFor = useRef<string | null>(null);
   useEffect(() => {
     fittedFor.current = null;
+    settleSigRef.current = "";
+    settleGuardRef.current = 0;
+    settleNormFor.current = null;
   }, [current]);
   useEffect(() => {
     if (current === null || fittedFor.current === current || nodes.length === 0) return;
@@ -147,6 +193,63 @@ function Canvas() {
       cancelAnimationFrame(raf);
     };
   }, [current, nodes, fitView, getNodes, setCenter]);
+
+  // 防重叠 settle：渲染稳定后按实测尺寸跑 separateOverlaps，把重叠节点推开（写回 positions）。
+  // 触发面：载入规整（估算补位的残差）、展开聚合、文本编辑致节点变高。拖动期间挂起
+  // （拖动碰撞在 onNodesChange 实时处理）。签名去重 + 收敛护栏保证不自激。
+  useEffect(() => {
+    if (nodes.length === 0) return;
+    let alive = true;
+    const trySettle = (attempt: number) => {
+      if (!alive || draggingRef.current) return;
+      const zoom = getZoom() || 1;
+      const rects: CollideRect[] = [];
+      const nextSizes: SizeMap = new Map();
+      for (const n of nodes) {
+        if (n.type === "frame") continue;
+        const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(n.id)}"]`);
+        const r = el?.getBoundingClientRect();
+        if (!r || r.width === 0) {
+          if (attempt < 600) requestAnimationFrame(() => trySettle(attempt + 1));
+          return;
+        }
+        rects.push({
+          id: n.id,
+          x: n.position.x,
+          y: n.position.y,
+          w: r.width / zoom,
+          h: r.height / zoom,
+        });
+        nextSizes.set(n.id, { w: r.width / zoom, h: r.height / zoom });
+      }
+      setSizes((prev) => (sameSizeMap(prev, nextSizes) ? prev : nextSizes));
+      const sig = rects
+        .map(
+          (r) =>
+            `${r.id}:${Math.round(r.x)}:${Math.round(r.y)}:${Math.round(r.w)}:${Math.round(r.h)}`,
+        )
+        .join("|");
+      if (sig === settleSigRef.current) return;
+      settleSigRef.current = sig;
+      const moved = separateOverlaps(rects);
+      if (moved.size === 0) {
+        settleGuardRef.current = 0; // 健康态：护栏归零
+        return;
+      }
+      if (settleGuardRef.current > SETTLE_GUARD) return;
+      settleGuardRef.current += 1;
+      const s = useEditor.getState();
+      const np = new Map(s.positions);
+      for (const [id, p] of moved) np.set(id, p);
+      setPositions(np, { normalize: settleNormFor.current !== s.current });
+      settleNormFor.current = s.current;
+    };
+    const raf = requestAnimationFrame(() => trySettle(0));
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+    };
+  }, [nodes, getZoom, setPositions]);
 
   // 诊断定位 / select_node / 新节点滚入视野：同样以 DOM 渲染就绪为准（measured 无可靠触发源）
   useEffect(() => {
@@ -200,11 +303,14 @@ function Canvas() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 受控模式：change 事件回流到领域 store（位置独立存放；remove 走 removeNode）
+  // 受控模式：change 事件回流到领域 store（位置独立存放；remove 走 removeNode）。
+  // 拖动中的位置变更附带实时碰撞推挤：被拖节点钉住，其余节点按实测尺寸让位（物理碰撞手感）。
   const onNodesChange = (changes: NodeChange<AnyFlowNode>[]) => {
+    const dragged: string[] = [];
     for (const ch of changes) {
       if (ch.type === "position" && ch.position) {
         setPosition(ch.id, ch.position);
+        if (ch.dragging) dragged.push(ch.id);
       } else if (ch.type === "select") {
         if (ch.selected) select(ch.id);
         else if (useEditor.getState().selected === ch.id) select(null);
@@ -213,6 +319,34 @@ function Canvas() {
         if (node && node.kind !== "start" && node.kind !== "end") removeNodeById(ch.id);
       }
     }
+    if (dragged.length === 0 || dragSizesRef.current === null) return;
+    const sz = dragSizesRef.current;
+    const latest = useEditor.getState().positions;
+    const rects: CollideRect[] = [];
+    for (const n of nodes) {
+      if (n.type === "frame") continue;
+      const size = sz.get(n.id);
+      if (!size) continue;
+      const p = latest.get(n.id) ?? n.position;
+      rects.push({ id: n.id, x: p.x, y: p.y, w: size.w, h: size.h });
+    }
+    const moved = separateOverlaps(rects, { pinned: new Set(dragged) });
+    if (moved.size === 0) return;
+    const np = new Map(latest);
+    for (const [id, p] of moved) np.set(id, p);
+    setPositions(np);
+  };
+
+  // 拖动手势边界：开始量取全部节点尺寸（拖动中尺寸不变）+ 暂存撤销快照；结束收尾
+  const onNodeDragStart = () => {
+    draggingRef.current = true;
+    dragSizesRef.current = measureNodes(getZoom() || 1);
+    beginMove();
+  };
+  const onNodeDragStop = () => {
+    draggingRef.current = false;
+    dragSizesRef.current = null;
+    endMove();
   };
 
   if (!graph) {
@@ -231,6 +365,8 @@ function Canvas() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDragStop={onNodeDragStop}
         onNodeClick={(_, node) => {
           const d = node.data as FlowData;
           if (d.node && isGroupNode(d.node)) expandGroup(d.node.id, d.node.runIds);

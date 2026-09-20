@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BgalsGraph, DialogueNode, GraphEdge, GraphNode, InstNode } from "../../shared/graph";
 import {
   COLLAPSE_THRESHOLD,
-  EXPAND_GAP,
+  EXPAND_GAP_Y,
   collapseRuns,
   groupIdOf,
   isGroupNode,
@@ -131,19 +131,19 @@ describe("collapseRuns", () => {
 });
 
 describe("stackPositions（展开聚合链的位置分配）", () => {
-  it("从基准位置垂直堆叠，x 对齐、固定间距", () => {
-    expect(stackPositions({ x: 100, y: 200 }, 3)).toEqual([
+  it("从基准位置垂直堆叠：x 对齐，按成员高度 + 净距累加", () => {
+    expect(stackPositions({ x: 100, y: 200 }, [100, 60, 80])).toEqual([
       { x: 100, y: 200 },
-      { x: 100, y: 200 + EXPAND_GAP },
-      { x: 100, y: 200 + EXPAND_GAP * 2 },
+      { x: 100, y: 200 + 100 + EXPAND_GAP_Y },
+      { x: 100, y: 200 + 100 + 60 + EXPAND_GAP_Y * 2 },
     ]);
   });
 
-  it("自定义间距与空链", () => {
-    expect(stackPositions({ x: 0, y: 0 }, 2, 50)).toEqual([
+  it("自定义净距与空链", () => {
+    expect(stackPositions({ x: 0, y: 0 }, [50, 50], 10)).toEqual([
       { x: 0, y: 0 },
-      { x: 0, y: 50 },
+      { x: 0, y: 60 },
     ]);
-    expect(stackPositions({ x: 1, y: 2 }, 0)).toEqual([]);
+    expect(stackPositions({ x: 1, y: 2 }, [])).toEqual([]);
   });
 });

@@ -86,6 +86,15 @@ body {
   border: 1px solid var(--color-grid);
   border-radius: 6px;
 }
+/* 光标模型：画布与节点统一箭头，精确指向优先（Obsidian/tldraw 同模型）。
+   平移 = 左键拖画布（行为不变，仅不再显示手掌）；缩放 = 滚轮；另有小地图/方向键导航。 */
+.react-flow__pane.draggable,
+.react-flow__pane.dragging,
+.react-flow__node.draggable,
+.react-flow__node.draggable.dragging,
+.react-flow__nodesselection-rect {
+  cursor: default;
+}
 .react-flow__attribution {
   background: transparent;
   color: var(--color-dim);

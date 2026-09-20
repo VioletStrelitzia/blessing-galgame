@@ -59,6 +59,7 @@ export async function openScript(script: string): Promise<void> {
       undoStack: [],
       redoStack: [],
       expandedGroups: new Set(),
+      expandShift: new Map(),
       lastSaved: snapshotOf(g, positions),
       dirty: false,
       report: null,

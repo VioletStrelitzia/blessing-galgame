@@ -19,11 +19,13 @@ export interface FrameRect {
   height: number;
 }
 
-/** 展开中的链 → frame 矩形（成员位置缺失的链跳过；返回仅含展开集内的链） */
+/** 展开中的链 → frame 矩形（成员位置缺失的链跳过；返回仅含展开集内的链）。
+ *  sizes 为 FlowCanvas 实测尺寸（DOM 测量，缺省回退 estimateSizeFor 估算） */
 export function frameRects(
   runs: GraphNode[][],
   expanded: Set<string>,
   positions: Map<string, Pos>,
+  sizes?: Map<string, { w: number; h: number }>,
 ): FrameRect[] {
   const out: FrameRect[] = [];
   for (const run of runs) {
@@ -36,11 +38,14 @@ export function frameRects(
     for (const n of run) {
       const p = positions.get(n.id);
       if (!p) continue;
-      const s = estimateSizeFor(n.kind, 0);
+      const sz = sizes?.get(n.id);
+      const est = sz ? null : estimateSizeFor(n.kind, 0);
+      const w = sz ? sz.w : est!.width;
+      const h = sz ? sz.h : est!.height;
       minX = Math.min(minX, p.x);
       minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x + s.width);
-      maxY = Math.max(maxY, p.y + s.height);
+      maxX = Math.max(maxX, p.x + w);
+      maxY = Math.max(maxY, p.y + h);
     }
     if (!Number.isFinite(minX)) continue;
     out.push({
