@@ -1,6 +1,6 @@
 // 连续同类节点聚合（纯视图层，不动领域图）：成串 dialogue/inst 折叠为 group 视图节点。
 // 极大纯 seq 链：链内 kind 全同（dialogue 或 inst）、彼此仅一条 seq 边相连（成员唯一入边）、
-// 无 option/branch/jump 混入；链长 > COLLAPSE_THRESHOLD 才折叠。带诊断/当前选中节点强制可见。
+// 无 option/branch/jump 混入；链长 ≥ COLLAPSE_THRESHOLD 即折叠。带诊断/当前选中节点强制可见。
 
 import type { BgalsGraph, GraphEdge, GraphNode } from "../../shared/graph";
 
@@ -40,11 +40,8 @@ export function groupIdOf(firstId: string): string {
   return `group:${firstId}`;
 }
 
-export function collapseRuns(
-  graph: BgalsGraph,
-  expanded: Set<string>,
-  forcedVisible: Set<string> = new Set(),
-): ViewGraph {
+/** 检测全部可聚合链（忽略展开状态；forcedVisible 仍拆分）。collapseRuns 与 frame 包围盒共用 */
+export function findRuns(graph: BgalsGraph, forcedVisible: Set<string> = new Set()): GraphNode[][] {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const seqOut = new Map<string, number>();
   const incoming = new Map<string, number[]>();
@@ -70,7 +67,7 @@ export function collapseRuns(
     return eligible(e.from);
   };
 
-  const runByHead = new Map<string, GraphNode[]>();
+  const runs: GraphNode[][] = [];
   const inRun = new Set<string>();
   for (const n of graph.nodes) {
     const head = eligible(n.id);
@@ -90,12 +87,22 @@ export function collapseRuns(
       run.push(nxt);
       inRun.add(nxtId);
     }
-    if (run.length >= COLLAPSE_THRESHOLD && !expanded.has(groupIdOf(run[0].id))) {
-      runByHead.set(run[0].id, run);
-    }
+    if (run.length >= COLLAPSE_THRESHOLD) runs.push(run);
   }
-  if (runByHead.size === 0) return { nodes: graph.nodes, edges: graph.edges };
+  return runs;
+}
 
+export function collapseRuns(
+  graph: BgalsGraph,
+  expanded: Set<string>,
+  forcedVisible: Set<string> = new Set(),
+): ViewGraph {
+  const collapsed = findRuns(graph, forcedVisible).filter(
+    (run) => !expanded.has(groupIdOf(run[0].id)),
+  );
+  if (collapsed.length === 0) return { nodes: graph.nodes, edges: graph.edges };
+
+  const runByHead = new Map(collapsed.map((run) => [run[0].id, run]));
   const memberToGroup = new Map<string, string>();
   for (const [headId, run] of runByHead) {
     for (const n of run) memberToGroup.set(n.id, groupIdOf(headId));
@@ -130,4 +137,22 @@ export function collapseRuns(
     }
   }
   return { nodes, edges };
+}
+
+/**
+ * 领域键位 positions → 视图键位（组 = group:<首id>，取组自身或首成员位置；
+ * 被折叠成员不在视图中，其位置不携带）。视图布局（fillMissingPositions/dagre）的输入。
+ */
+export function viewPositionsOf(
+  view: ViewGraph,
+  positions: Map<string, { x: number; y: number }>,
+): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>();
+  for (const n of view.nodes) {
+    const p = isGroupNode(n)
+      ? (positions.get(n.id) ?? positions.get(n.runIds[0]))
+      : positions.get(n.id);
+    if (p) out.set(n.id, p);
+  }
+  return out;
 }

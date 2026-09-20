@@ -29,6 +29,13 @@ export interface FlowData extends Record<string, unknown> {
 
 export type FlowNode = Node<FlowData>;
 
+/** 展开聚合链的边界框节点（纯展示，无 Handle，压底） */
+export interface FrameData extends Record<string, unknown> {
+  frame: { label: string; color: string };
+}
+export type FrameFlowNode = Node<FrameData, "frame">;
+export type AnyFlowNode = FlowNode | FrameFlowNode;
+
 export interface FlowEdgeData extends Record<string, unknown> {
   /** 对应领域图 BgalsGraph.edges 的数组下标（insertOnEdge 等操作的入参）；-1 = 视图合成边 */
   edgeIndex: number;
@@ -45,7 +52,12 @@ export function toFlow(
   domainEdges: GraphEdge[] = graph.edges,
 ): { nodes: FlowNode[]; edges: Edge[] } {
   const groupIds = new Set(graph.nodes.filter(isGroupNode).map((n) => n.id));
-  const nodes = graph.nodes.map((n) => ({
+  // 孤立 end（剧本以 jump 终结时 GraphDumper 不产生任何进入 end 的边）直接不渲染——
+  // 纯视图层过滤，领域图不动（appendEnd 等操作不受影响），避免 dagre 把它丢到 start 旁的顶部。
+  const visibleNodes = graph.nodes.filter(
+    (n) => !(n.kind === "end" && !graph.edges.some((e) => e.to === n.id)),
+  );
+  const nodes = visibleNodes.map((n) => ({
     id: n.id,
     type: n.kind,
     position:

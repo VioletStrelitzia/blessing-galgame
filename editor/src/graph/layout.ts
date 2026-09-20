@@ -1,9 +1,10 @@
 // dagre TB 自动布局：按节点形态估算尺寸，布局后回写节点左上角坐标。
 // fillMissingPositions 为缺位节点补位：优先挂到已定位前驱下方（级联），孤立节点回退 dagre 全图布局。
+// 输入为视图图（ViewGraph：领域图经 collapseRuns 聚合后的形态），被折叠成员不占槽位。
 
 import dagre from "@dagrejs/dagre";
 import type { Edge } from "@xyflow/react";
-import type { BgalsGraph } from "../../shared/graph";
+import type { ViewGraph } from "./collapse";
 import { toFlow, type FlowNode } from "./toFlow";
 
 export interface Pos {
@@ -11,9 +12,11 @@ export interface Pos {
   y: number;
 }
 
-function estimateSize(n: FlowNode): { width: number; height: number } {
-  const rows = n.data.rows.length;
-  switch (n.data.node.kind) {
+/** dagre ranksep（层间距），测试断言复用 */
+export const RANKSEP = 64;
+
+export function estimateSizeFor(kind: string, rows = 0): { width: number; height: number } {
+  switch (kind) {
     case "start":
     case "end":
       return { width: 96, height: 32 };
@@ -31,12 +34,18 @@ function estimateSize(n: FlowNode): { width: number; height: number } {
       return { width: 200, height: 40 };
     case "group":
       return { width: 260, height: 44 + 3 * 22 };
+    default:
+      return { width: 200, height: 60 };
   }
+}
+
+function estimateSize(n: FlowNode): { width: number; height: number } {
+  return estimateSizeFor(n.data.node.kind, n.data.rows.length);
 }
 
 export function layoutGraph(nodes: FlowNode[], edges: Edge[]): FlowNode[] {
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: "TB", nodesep: 36, ranksep: 64, marginx: 24, marginy: 24 });
+  g.setGraph({ rankdir: "TB", nodesep: 36, ranksep: RANKSEP, marginx: 24, marginy: 24 });
   g.setDefaultEdgeLabel(() => ({}));
   for (const n of nodes) {
     const s = estimateSize(n);
@@ -56,10 +65,10 @@ const DROP_Y = 160;
 /**
  * 为 positions 中缺失的节点补位（返回新 Map，入参不动）：
  * 前驱（含 comment 的附着目标）已定位则置于其正下方，循环级联；
- * 仍孤立的节点用 dagre 全图布局兜底（无 sidecar 时即全量 dagre，与 M1 一致）。
+ * 仍孤立的节点用 dagre 全图布局兜底（无 sidecar 时即全量 dagre）。
  */
 export function fillMissingPositions(
-  graph: BgalsGraph,
+  graph: ViewGraph,
   positions: Map<string, Pos>,
 ): Map<string, Pos> {
   const out = new Map(positions);

@@ -6,6 +6,7 @@ import { emitGraph } from "../../shared/emit";
 import type { BgalsGraph } from "../../shared/graph";
 import { applySidecar, buildSidecar } from "../../shared/sidecar";
 import { api } from "../api";
+import { collapseRuns, viewPositionsOf } from "../graph/collapse";
 import { fillMissingPositions, type Pos } from "../graph/layout";
 import { errMsg, mapDiags, snapshotOf, useEditor } from "./store";
 
@@ -46,7 +47,9 @@ export async function openScript(script: string): Promise<void> {
       g = { ...graph, nodes: [...graph.nodes, ...applied.comments] };
       positions = applied.positions;
     }
-    positions = fillMissingPositions(g, positions);
+    // 布局作用于聚合后的视图图（初始全折叠）：组只占一格，成员槽位不推高下游节点
+    const view = collapseRuns(g, new Set());
+    positions = fillMissingPositions(view, viewPositionsOf(view, positions));
     useEditor.setState({
       graph: g,
       current: script,

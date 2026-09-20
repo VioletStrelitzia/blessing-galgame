@@ -72,6 +72,10 @@ npm run build && npm run dev:server
   group 节点（胶囊标签 `DIALOGUE ×12` + 首 2 尾 1 摘要 + 「展开其余 N 条」）；带诊断/选中节点
   强制可见；展开链首节点左上角有「收起」按钮；触及组的合成边不显示「+」。expandedGroups 随剧本切换清空。
   展开时成员从组当前位置垂直堆叠（间距 130，`stackPositions`），收起回到堆叠起点，几何稳定。
+  **布局作用于聚合后的视图图**（fillMissingPositions/dagre 的输入是 collapseRuns 产物，
+  被折叠成员不占槽位，组只占一格）；展开中的链外套分组边界框（frame 节点：12px 圆角、
+  1px 虚线语义色描边、5% 色混底、左上角 `KIND ×N` 标签，压底不响应交互），收起即消失。
+  孤立 end 节点（jump 终结的剧本无入边）在视图层不渲染（领域图不动）。
 
 ## 快捷键
 
