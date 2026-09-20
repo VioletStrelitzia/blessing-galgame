@@ -30,6 +30,9 @@ log.txt
 /worknotes/
 *.tmp
 
+# 便携运行时（Godot/Node 免安装解压位，见 docs/AI部署指南.md）
+/tools/
+
 # Web 编辑器（editor/）前端产物
 editor/node_modules/
 editor/dist/
